@@ -1,27 +1,15 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 240" role="img" aria-label="Limon">
+<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="512" height="512" rx="118" fill="#050607"/>
+  <rect x="54" y="54" width="404" height="404" rx="92" fill="url(#g)" stroke="#e5b64b" stroke-width="8"/>
+  <path d="M158 140h150l58 58v174c0 16-13 29-29 29H158c-16 0-29-13-29-29V169c0-16 13-29 29-29Z" fill="#101317" stroke="#f2c65a" stroke-width="10"/>
+  <path d="M306 143v61h61" stroke="#f7d88a" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M177 250h158M177 296h128" stroke="#f7d88a" stroke-width="18" stroke-linecap="round"/>
+  <path d="m190 354 37 37 95-106" stroke="#27e6a1" stroke-width="24" stroke-linecap="round" stroke-linejoin="round"/>
   <defs>
-    <radialGradient id="glow" cx="45%" cy="35%" r="70%">
-      <stop offset="0%" stop-color="#fff8b8"/>
-      <stop offset="45%" stop-color="#ffd43b"/>
-      <stop offset="100%" stop-color="#ffb703"/>
-    </radialGradient>
-    <linearGradient id="leaf" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="#fff4a3"/>
-      <stop offset="100%" stop-color="#d99200"/>
+    <linearGradient id="g" x1="88" y1="86" x2="433" y2="455" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#14181f"/>
+      <stop offset="0.48" stop-color="#090b0f"/>
+      <stop offset="1" stop-color="#211704"/>
     </linearGradient>
-    <filter id="soft" x="-40%" y="-40%" width="180%" height="180%">
-      <feGaussianBlur stdDeviation="5" result="blur"/>
-      <feColorMatrix in="blur" type="matrix" values="0 0 0 0 1 0 0 0 0 0.82 0 0 0 0 0.16 0 0 0 .82 0"/>
-      <feMerge>
-        <feMergeNode/>
-        <feMergeNode in="SourceGraphic"/>
-      </feMerge>
-    </filter>
   </defs>
-  <rect width="240" height="240" rx="46" fill="#110b01"/>
-  <circle cx="120" cy="122" r="86" fill="rgba(255,212,59,.14)"/>
-  <path d="M74 144c-25-31-13-80 24-102 39-23 90-9 110 25-14 3-29 11-43 25-20 20-33 44-42 72-19 2-36-4-49-20Z" fill="url(#glow)" filter="url(#soft)"/>
-  <path d="M139 49c19-25 48-30 68-18-10 24-32 41-62 38-8-1-11-13-6-20Z" fill="url(#leaf)"/>
-  <path d="M63 160c31 33 86 33 125 3" fill="none" stroke="#fff2a8" stroke-width="10" stroke-linecap="round" opacity=".88"/>
-  <text x="120" y="202" text-anchor="middle" font-family="Arial, sans-serif" font-size="30" font-weight="900" fill="#fff2a8">LIMON</text>
 </svg>

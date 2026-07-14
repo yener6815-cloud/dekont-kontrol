@@ -106,7 +106,7 @@ button:active { transform: scale(.97); }
 .clock-box strong { font-size: 26px; grid-column: 1; }
 .logout-button { grid-row: 1 / span 2; grid-column: 2; align-self: center; min-height: 42px; padding: 0 14px; background: rgba(255,255,255,.08); color: var(--gold-soft); border: 1px solid rgba(229,182,75,.24); }
 .hero-panel { min-height: 190px; border-radius: 24px; padding: 28px; display: flex; justify-content: space-between; gap: 18px; align-items: center; background: linear-gradient(135deg, rgba(42,34,8,.88), rgba(18,12,2,.72) 46%, rgba(7,8,11,.86)); position: relative; overflow: hidden; }
-.hero-panel::after { content: ""; position: absolute; inset: 0; background: url('/logo.svg') center / min(520px, 80vw) auto no-repeat; opacity: .08; filter: blur(2px); }
+.hero-panel::after { content: ""; position: absolute; inset: 0; background: url('/limon.svg') center / min(520px, 80vw) auto no-repeat; opacity: .08; filter: blur(2px); }
 .hero-panel > * { position: relative; z-index: 1; }
 .hero-panel h2 { margin: 0 0 10px; font-size: clamp(46px, 10vw, 74px); line-height: .92; }
 .hero-panel p { margin: 0; color: #c8d0dd; font-weight: 800; }
@@ -173,7 +173,7 @@ button:active { transform: scale(.97); }
   content: "";
   position: absolute;
   inset: -18vh -18vw;
-  background: url("/logo.svg") center / min(820px, 124vw) auto no-repeat;
+  background: url("/limon.svg") center / min(820px, 124vw) auto no-repeat;
   opacity: .18;
   filter: blur(16px) saturate(1.18);
   animation: logoBreath 1800ms ease-in-out infinite alternate;
