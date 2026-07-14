@@ -22,7 +22,30 @@ const MAX_STORED_RECEIPTS = clamp(process.env.MAX_STORED_RECEIPTS, 3000, 100, 25
 const MAX_FETCH_PER_SCAN = clamp(process.env.MAX_FETCH_PER_SCAN, 120, 20, 1000);
 const SESSION_TTL_MS = 12 * 60 * 60 * 1000;
 const RECEIPT_MAILBOXES = unique((process.env.RECEIPT_MAILBOXES || "[Gmail]/All Mail,[Gmail]/Tüm Postalar,[Google Mail]/All Mail,[Gmail]/Updates,[Gmail]/Guncellemeler,[Gmail]/Categories/Promotions,[Gmail]/Categories/Social,[Gmail]/Kategoriler/Tanıtımlar,[Gmail]/Kategoriler/Sosyal,[Gmail]/Promotions,[Gmail]/Social,[Gmail]/Spam,[Gmail]/Gereksiz,[Gmail]/Junk,INBOX").split(",").map((x) => x.trim()).filter(Boolean));
-const SEARCH_TERMS = ["Kuveyt", "Kuveyt Türk", "Kuveyt Turk", "Hesabınıza", "Hesabiniza", "FAST ile para geldi", "Para Geldi", "Bilgilendirme"];
+const SEARCH_TERMS = ["Kuveyt", "Kuveyt Türk", "Kuveyt Turk", "Hesabınıza", "Hesabiniza", "FAST ile para geldi", "EFT ile para geldi", "Havale ile para geldi", "Para Geldi", "Para Girişi", "Para Girisi", "Bilgilendirme"];
+const RECEIPT_FIELD_LABELS = [
+  "Gonderen Adi Soyadi",
+  "Gönderen Adı Soyadı",
+  "Gonderen Ad Soyad",
+  "Gönderen Ad Soyad",
+  "Gonderen",
+  "Gönderen",
+  "Gonderen Bankasi",
+  "Gönderen Bankası",
+  "Banka",
+  "Tutar",
+  "Gelen Tutar",
+  "Para Girisi",
+  "Para Girişi",
+  "Aciklama",
+  "Açıklama",
+  "Islem Aciklamasi",
+  "İşlem Açıklaması",
+  "Islem Zamani",
+  "İşlem Zamanı",
+  "Tarih",
+  "Saat"
+];
 
 fs.mkdirSync(DATA_DIR, { recursive: true });
 const sessions = new Map();
@@ -412,7 +435,7 @@ function parseReceipt(uid, raw, mailbox) {
   if (!isKuveytReceipt(searchable)) return null;
   const amount = findAmount(body);
   if (!amount) return null;
-  const sender = findField(body, [/g[oö]nderen(?:\s+ad[ıi]\s+soyad[ıi])?/i, /ad[ıi]\s+soyad[ıi]/i, /g[oö]nderen/i]) || inferSender(body) || "Belirtilmedi";
+  const sender = findField(body, [/g[oö]nderen(?:\s+ad[ıi]\s+soyad[ıi])?/i, /g[oö]nderen\s+ad\s+soyad/i, /ad[ıi]\s+soyad[ıi]/i, /g[oö]nderen/i]) || inferSender(body) || "Belirtilmedi";
   if (!isValidSender(sender)) return null;
   const senderBank = findField(body, [/g[oö]nderen\s+banka(?:s[ıi])?/i, /banka(?:s[ıi])?/i]) || "Banka bilgisi yok";
   const desc = findField(body, [/a[çc][ıi]klama(?:s[ıi])?/i, /i[şs]lem\s+a[çc][ıi]klama(?:s[ıi])?/i]) || inferDescription(body) || "Aciklama yok";
@@ -424,9 +447,24 @@ function parseReceipt(uid, raw, mailbox) {
 }
 
 function isKuveytReceipt(text) {
-  const compact = text.replace(/\s+/g, "");
+  const compact = compactSearch(text);
   return (text.includes("kuveyt") || text.includes("bilgilendirme")) && (
-    text.includes("hesabiniza para") || text.includes("para geldi") || text.includes("fast ile para geldi") || text.includes("eft ile para geldi") || compact.includes("hesabinizaparageldi")
+    text.includes("hesabiniza para geldi") ||
+    text.includes("hesabiniza para") ||
+    text.includes("hesabiniza fast ile para geldi") ||
+    text.includes("hesabiniza eft ile para geldi") ||
+    text.includes("hesabiniza havale ile para geldi") ||
+    text.includes("para geldi") ||
+    text.includes("para girisi") ||
+    text.includes("fast ile para geldi") ||
+    text.includes("eft ile para geldi") ||
+    text.includes("havale ile para geldi") ||
+    compact.includes("hesabinizaparageldi") ||
+    compact.includes("hesabinizapara") ||
+    compact.includes("hesabinizafastileparageldi") ||
+    compact.includes("hesabinizaeftileparageldi") ||
+    compact.includes("hesabinizahavaleileparageldi") ||
+    /hesabiniza.{0,50}(fast|eft|havale)?.{0,50}para/.test(text)
   );
 }
 
@@ -482,7 +520,16 @@ function cleanText(value) { return String(value || "").replace(/\r/g, "\n").repl
 function normalizeSearch(value) { return String(value || "").toLocaleLowerCase("tr-TR").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/ı/g, "i").replace(/ğ/g, "g").replace(/ü/g, "u").replace(/ş/g, "s").replace(/ö/g, "o").replace(/ç/g, "c"); }
 function normalizeMessageId(value) { return String(value || "").trim().replace(/[<>]/g, "").toLowerCase(); }
 
-function receiptLines(text) { return cleanText(text).split(/\n+/).map((line) => line.replace(/\s+/g, " ").trim()).filter(Boolean); }
+function compactSearch(value) { return normalizeSearch(value).replace(/[^a-z0-9]+/g, ""); }
+
+function receiptLines(text) {
+  let output = cleanText(text);
+  for (const label of RECEIPT_FIELD_LABELS) {
+    const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\s+/g, "\\s+");
+    output = output.replace(new RegExp(`([\\s\\-|,;]+)(${escaped})\\s*[:：]`, "gi"), "\n$2:");
+  }
+  return output.split(/\n+/).map((line) => line.replace(/\s+/g, " ").trim()).filter(Boolean);
+}
 
 function findField(text, labels) {
   const lines = receiptLines(text);
@@ -491,13 +538,22 @@ function findField(text, labels) {
       if (!label.test(lines[i])) continue;
       const after = lines[i].split(/[:：]/).slice(1).join(":").trim();
       const candidate = sanitizeValue(after || lines[i + 1] || "");
-      if (candidate && !labels.some((l) => l.test(candidate)) && candidate.length < 180) return candidate;
+      if (isUsableFieldValue(candidate, labels)) return candidate;
     }
   }
   return "";
 }
 
 function sanitizeValue(value) { return String(value || "").replace(/^[\s:;\-|]+/, "").replace(/\s+/g, " ").trim(); }
+
+function isUsableFieldValue(value, ownLabels = []) {
+  const candidate = sanitizeValue(value);
+  if (!candidate || candidate.length > 180) return false;
+  if (ownLabels.some((label) => label.test(candidate))) return false;
+  const normalized = normalizeSearch(candidate);
+  const blocked = ["tutar", "aciklama", "islem zamani", "gonderen banka", "banka", "tarih", "saat"];
+  return !blocked.some((label) => normalized === label || normalized.startsWith(`${label}:`));
+}
 
 function findAmount(text) {
   const normalized = String(text || "");
@@ -522,9 +578,13 @@ function parseAmount(value) {
 }
 
 function inferSender(text) {
-  const line = receiptLines(text).find((item) => /adl[ıi]\s+ki[şs]iden|taraf[ıi]ndan/i.test(item));
+  const lines = receiptLines(text);
+  const line = lines.find((item) => /adl[ıi]\s+ki[şs]iden|taraf[ıi]ndan|g[oö]nderen/i.test(item));
   if (!line) return "";
-  const match = line.match(/(?:saatinde\s+)?(.{3,90}?)\s+adl[ıi]\s+ki[şs]iden/i) || line.match(/(.{3,90}?)\s+taraf[ıi]ndan/i);
+  const match =
+    line.match(/(?:saatinde\s+)?(.{3,90}?)\s+adl[ıi]\s+ki[şs]iden/i) ||
+    line.match(/(.{3,90}?)\s+taraf[ıi]ndan/i) ||
+    line.match(/g[oö]nderen(?:\s+ad[ıi]\s+soyad[ıi])?\s*[:：]\s*(.{3,90})/i);
   return match ? sanitizeValue(match[1]) : "";
 }
 
