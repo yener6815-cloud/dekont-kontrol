@@ -283,6 +283,7 @@ async function triggerScan(mode = "interval", lookbackDays = SCAN_LOOKBACK_DAYS)
       lastScanAt: new Date().toISOString(),
       scannedCandidates: result.candidates,
       processedCandidates: result.processed,
+      skippedCandidates: result.skipped,
       mailAddress: maskEmail(MAIL_ADDRESS),
       mailConfigured: Boolean(MAIL_ADDRESS && MAIL_PASSWORD),
       newCount: result.newReceipts.length
@@ -315,11 +316,15 @@ async function scanMail({ mode = "interval", lookbackDays }) {
     const messages = await imap.fetchMessages(freshTargets);
     const newReceipts = [];
     let processed = 0;
+    let skipped = 0;
     for (const message of messages) {
       processed += 1;
       const key = `${message.mailbox}:${message.uid}`;
       const parsed = parseReceipt(message.uid, message.raw, message.mailbox);
-      if (!parsed) continue;
+      if (!parsed) {
+        skipped += 1;
+        continue;
+      }
       state.seen.push(key);
       if (receiptKnown.has(parsed.identityKey) || receiptKnown.has(parsed.id)) continue;
       receiptKnown.add(parsed.identityKey);
@@ -332,7 +337,7 @@ async function scanMail({ mode = "interval", lookbackDays }) {
     if (newReceipts.length) {
       saveStateNow();
     }
-    return { candidates: targets.length, processed, newReceipts };
+    return { candidates: targets.length, processed, skipped, newReceipts };
   } finally {
     imap.close();
   }
@@ -444,7 +449,8 @@ function parseReceipt(uid, raw, mailbox) {
   if (!isKuveytReceipt(searchable)) return null;
   const amount = findAmount(body);
   if (!amount) return null;
-  const sender = normalizeSenderName(findField(body, [/g[oö]nderen(?:\s+ad[ıi]\s+soyad[ıi])?/i, /g[oö]nderen\s+ad\s+soyad/i, /ad[ıi]\s+soyad[ıi]/i, /g[oö]nderen/i]) || inferSender(body));
+  const sender = findField(body, [/g[oö]nderen(?:\s+ad[ıi]\s+soyad[ıi])?/i, /g[oö]nderen\s+ad\s+soyad/i, /ad[ıi]\s+soyad[ıi]/i, /g[oö]nderen/i]) || inferSender(body);
+  if (!isValidSender(sender)) return null;
   const senderBank = findField(body, [/g[oö]nderen\s+banka(?:s[ıi])?/i, /banka(?:s[ıi])?/i]) || "Banka bilgisi yok";
   const desc = findField(body, [/a[çc][ıi]klama(?:s[ıi])?/i, /i[şs]lem\s+a[çc][ıi]klama(?:s[ıi])?/i]) || inferDescription(body) || "Aciklama yok";
   const transactionTime = findField(body, [/i[şs]lem\s+zaman[ıi]/i, /tarih/i, /saat/i]) || inferDate(body) || parseDate(headers.date) || "";
@@ -625,12 +631,7 @@ function sanitizeReceipts(receipts) {
 }
 
 function isDisplayableReceipt(receipt) {
-  return Boolean(receipt && Number(receipt.amount || 0) > 0 && isKuveytReceipt(normalizeSearch(`${receipt.subject || ""}\n${receipt.desc || ""}\n${receipt.sender || ""}`)));
-}
-
-function normalizeSenderName(sender) {
-  const value = sanitizeValue(sender);
-  return isValidSender(value) ? value : "Gönderen okunamadı";
+  return Boolean(receipt && Number(receipt.amount || 0) > 0 && isValidSender(receipt.sender));
 }
 
 function isValidSender(sender) {
