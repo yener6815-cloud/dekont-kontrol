@@ -121,6 +121,14 @@
           <button class="ghost-button" id="cashboxStart" type="button">Baslat</button>
           <button class="ghost-button danger" id="cashboxReset" type="button">Sifirla</button>
         </div>
+        <div class="cashbox-manual-add">
+          <p>Eger dekont geldi ve sisteme dusmediyse, buradan tutari kasaya ekleyebilirsiniz.</p>
+          <div class="cashbox-row">
+            <input id="cashboxManualInput" inputmode="decimal" placeholder="Kasaya eklenecek tutar">
+            <button class="ghost-button" id="cashboxManualAdd" type="button">Ustune ekle</button>
+          </div>
+          <small id="cashboxManualMessage"></small>
+        </div>
         <div class="cashbox-total" id="cashboxTotal">₺0,00</div>
       </div>
     </section>

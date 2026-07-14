@@ -23,6 +23,9 @@ const cashboxStatus = document.getElementById("cashboxStatus");
 const cashboxInput = document.getElementById("cashboxInput");
 const cashboxStart = document.getElementById("cashboxStart");
 const cashboxReset = document.getElementById("cashboxReset");
+const cashboxManualInput = document.getElementById("cashboxManualInput");
+const cashboxManualAdd = document.getElementById("cashboxManualAdd");
+const cashboxManualMessage = document.getElementById("cashboxManualMessage");
 const cashboxTotal = document.getElementById("cashboxTotal");
 const welcomeOverlay = document.getElementById("welcomeOverlay");
 const splashName = document.getElementById("splashName");
@@ -42,8 +45,8 @@ const state = {
   lastStatsRenderKey: ""
 };
 
-const LIMON_CASHBOX_BASELINE_VERSION = "limon-20180-20260715";
-const LIMON_CASHBOX_BASELINE_AMOUNT = 20180;
+const LIMON_CASHBOX_BASELINE_VERSION = "limon-28280-20260715";
+const LIMON_CASHBOX_BASELINE_AMOUNT = 28280;
 
 function money(value) {
   return new Intl.NumberFormat("tr-TR", { style: "currency", currency: "TRY", minimumFractionDigits: 2 }).format(Number(value || 0));
@@ -359,6 +362,25 @@ cashboxStart.addEventListener("click", () => {
   saveCashbox(); renderCashbox(); cashboxInput.value = "";
 });
 cashboxReset.addEventListener("click", () => { state.cashbox = {}; saveCashbox(); renderCashbox(); });
+cashboxManualAdd.addEventListener("click", () => {
+  const amount = parseMoney(cashboxManualInput.value);
+  if (!amount) {
+    cashboxManualMessage.textContent = "Kasaya eklenecek gecerli bir tutar yaz.";
+    cashboxManualInput.focus();
+    return;
+  }
+  state.cashbox = {
+    ...(state.cashbox || {}),
+    active: true,
+    total: Number(state.cashbox.total || 0) + amount,
+    applied: Array.isArray(state.cashbox.applied) ? state.cashbox.applied : []
+  };
+  saveCashbox();
+  renderCashbox();
+  cashboxManualInput.value = "";
+  cashboxManualMessage.textContent = `${money(amount)} manuel olarak kasaya eklendi.`;
+});
+cashboxManualInput.addEventListener("input", () => { cashboxManualMessage.textContent = ""; });
 
 setInterval(() => {
   clockText.textContent = new Intl.DateTimeFormat("tr-TR", { hour: "2-digit", minute: "2-digit", second: "2-digit", timeZone: "Europe/Istanbul" }).format(new Date());
