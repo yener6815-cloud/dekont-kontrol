@@ -42,6 +42,9 @@ const state = {
   lastStatsRenderKey: ""
 };
 
+const LIMON_CASHBOX_BASELINE_VERSION = "limon-20180-20260715";
+const LIMON_CASHBOX_BASELINE_AMOUNT = 20180;
+
 function money(value) {
   return new Intl.NumberFormat("tr-TR", { style: "currency", currency: "TRY", minimumFractionDigits: 2 }).format(Number(value || 0));
 }
@@ -155,6 +158,7 @@ function applyPayload(payload, mode = "normal", newReceipts = []) {
   state.receipts = Array.isArray(payload.receipts) ? payload.receipts : [];
   state.health = payload.health || {};
   state.stats = payload.stats || {};
+  ensureLimonCashboxBaseline();
   syncCashbox(newReceipts.length ? newReceipts : state.receipts.filter((item) => !previousIds.has(item.id)));
   renderAll({
     receiptsChanged: previousReceiptKey !== receiptCollectionKey(state.receipts)
@@ -259,6 +263,17 @@ function loadCashbox() {
   try { return JSON.parse(localStorage.getItem("dkCashbox") || "{}"); } catch (_) { return {}; }
 }
 function saveCashbox() { localStorage.setItem("dkCashbox", JSON.stringify(state.cashbox)); }
+function ensureLimonCashboxBaseline() {
+  if (localStorage.getItem("dkCashboxBaseline") === LIMON_CASHBOX_BASELINE_VERSION) return;
+  state.cashbox = {
+    active: true,
+    total: LIMON_CASHBOX_BASELINE_AMOUNT,
+    applied: state.receipts.map((item) => item.id).filter(Boolean),
+    baseline: LIMON_CASHBOX_BASELINE_VERSION
+  };
+  localStorage.setItem("dkCashboxBaseline", LIMON_CASHBOX_BASELINE_VERSION);
+  saveCashbox();
+}
 function syncCashbox(newReceipts) {
   if (!state.cashbox.active) return;
   const applied = new Set(state.cashbox.applied || []);
