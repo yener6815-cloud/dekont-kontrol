@@ -44,12 +44,12 @@ const state = {
   receipts: [],
   health: {},
   stats: {},
-  page: Number(localStorage.getItem("dkPage") || 1),
+  page: 1,
   search: "",
   eventSource: null,
   liveReady: false,
-  cashbox: loadCashbox(),
-  totalAdjustment: Number(localStorage.getItem("dkTotalAdjustment") || 0),
+  cashbox: {},
+  totalAdjustment: 0,
   lastReceiptRenderKey: "",
   lastStatsRenderKey: ""
 };
@@ -88,6 +88,9 @@ function enterApp(user) {
   state.user = user;
   const theme = user.theme || "limon";
   const logo = user.logo || "/limon.svg";
+  state.page = Number(localStorage.getItem(storageKey("page")) || 1);
+  state.cashbox = loadCashbox();
+  state.totalAdjustment = Number(localStorage.getItem(storageKey("totalAdjustment")) || 0);
   document.body.dataset.panelTheme = theme;
   const displayName = user.name || user.username || "Limon Admin";
   welcomeTitle.textContent = `${displayName}`;
@@ -222,7 +225,7 @@ function renderReceipts() {
   const visible = getVisibleReceipts();
   const totalPages = Math.max(1, Math.ceil(visible.length / 10));
   state.page = Math.min(Math.max(1, state.page), totalPages);
-  localStorage.setItem("dkPage", String(state.page));
+  localStorage.setItem(storageKey("page"), String(state.page));
   const newestId = visible[0] && visible[0].id;
   const pageItems = visible.slice((state.page - 1) * 10, state.page * 10);
   const nextRenderKey = visibleRenderKey(pageItems, totalPages, newestId);
@@ -274,9 +277,9 @@ function showReceiptToast(receipt) {
 }
 
 function loadCashbox() {
-  try { return JSON.parse(localStorage.getItem("dkCashbox") || "{}"); } catch (_) { return {}; }
+  try { return JSON.parse(localStorage.getItem(storageKey("cashbox")) || "{}"); } catch (_) { return {}; }
 }
-function saveCashbox() { localStorage.setItem("dkCashbox", JSON.stringify(state.cashbox)); }
+function saveCashbox() { localStorage.setItem(storageKey("cashbox"), JSON.stringify(state.cashbox)); }
 function ensureLimonCashboxBaseline() {
   return;
 }
@@ -301,7 +304,12 @@ function renderCashbox() {
 }
 
 function saveTotalAdjustment() {
-  localStorage.setItem("dkTotalAdjustment", String(Number(state.totalAdjustment || 0)));
+  localStorage.setItem(storageKey("totalAdjustment"), String(Number(state.totalAdjustment || 0)));
+}
+
+function storageKey(name) {
+  const account = state.user && state.user.account ? state.user.account : "guest";
+  return `dk:${account}:${name}`;
 }
 
 function applyTotalAdjustment(action) {

@@ -11,8 +11,7 @@ const DATA_FILE = process.env.DATABASE_FILE || path.join(DATA_DIR, "database.jso
 const PORT = Number(process.env.PORT || 10000);
 const PUBLIC_BASE_URL = String(process.env.PUBLIC_BASE_URL || "").replace(/\/$/, "");
 const PANEL_USERS = buildPanelUsers();
-const MAIL_ADDRESS = process.env.DEKONT_MAIL || process.env.LIMON_MAIL || "";
-const MAIL_PASSWORD = normalizeSecret(process.env.DEKONT_APP_PASSWORD || process.env.LIMON_APP_PASSWORD || "");
+const MAIL_ACCOUNTS = buildMailAccounts();
 const SCAN_INTERVAL_MS = clamp(process.env.SCAN_INTERVAL_MS, 1000, 1000, 10000);
 const SCAN_LOOKBACK_DAYS = clamp(process.env.SCAN_LOOKBACK_DAYS, 10, 1, 90);
 const MANUAL_SCAN_LOOKBACK_DAYS = clamp(process.env.MANUAL_SCAN_LOOKBACK_DAYS, 45, 1, 365);
@@ -104,7 +103,7 @@ const RECEIPT_FIELD_LOOKUP = buildReceiptFieldLookup();
 fs.mkdirSync(DATA_DIR, { recursive: true });
 const sessions = new Map();
 const clients = new Set();
-let scanBusy = false;
+const scanBusyAccounts = new Set();
 let scanTimer = null;
 let saveTimer = null;
 let state = loadState();
@@ -125,6 +124,7 @@ function buildPanelUsers() {
       username: process.env.PANEL_USERNAME || "limonadmin",
       password: process.env.PANEL_PASSWORD || "admin123",
       name: process.env.PANEL_NAME || "Limon Admin",
+      account: "limon",
       theme: "limon",
       logo: "/limon.svg",
       sourceLabel: "Veriler kalici database kaydiyla korunur."
@@ -133,9 +133,10 @@ function buildPanelUsers() {
       username: "musti",
       password: "mustigiriş123",
       name: "Musti Admin",
+      account: "musti",
       theme: "musti",
       logo: "/musti.svg",
-      sourceLabel: "Musti hesabı için mail ve IBAN kaynağı hazır bekliyor."
+      sourceLabel: "Musti paneli bagimsiz veri kaynagiyla calisir."
     }
   ];
   return users.map((user) => ({
@@ -149,9 +150,27 @@ function publicUser(user) {
   return {
     name: user.name,
     username: user.username,
+    account: user.account || "limon",
     theme: user.theme || "limon",
     logo: user.logo || "/logo.svg",
     sourceLabel: user.sourceLabel || "Veriler kalici database kaydiyla korunur."
+  };
+}
+
+function buildMailAccounts() {
+  return {
+    limon: {
+      account: "limon",
+      label: "Limon",
+      email: process.env.DEKONT_MAIL || process.env.LIMON_MAIL || "",
+      password: normalizeSecret(process.env.DEKONT_APP_PASSWORD || process.env.LIMON_APP_PASSWORD || "")
+    },
+    musti: {
+      account: "musti",
+      label: "Musti",
+      email: process.env.MUSTI_DEKONT_MAIL || process.env.MUSTI_MAIL || "",
+      password: normalizeSecret(process.env.MUSTI_DEKONT_APP_PASSWORD || process.env.MUSTI_APP_PASSWORD || "")
+    }
   };
 }
 
@@ -276,22 +295,23 @@ const server = http.createServer(async (req, res) => {
         "Cache-Control": "no-store",
         Connection: "keep-alive"
       });
-      res.write(`event: ready\ndata: ${JSON.stringify(buildPayload())}\n\n`);
-      clients.add(res);
-      req.on("close", () => clients.delete(res));
+      res.write(`event: ready\ndata: ${JSON.stringify(buildPayload(user.account))}\n\n`);
+      const client = { res, account: user.account };
+      clients.add(client);
+      req.on("close", () => clients.delete(client));
       return;
     }
 
     if (url.pathname === "/api/receipts") {
       const user = requireAuth(req, res);
       if (!user) return;
-      return sendJson(res, 200, buildPayload());
+      return sendJson(res, 200, buildPayload(user.account));
     }
 
     if (req.method === "POST" && url.pathname === "/api/refresh") {
       const user = requireAuth(req, res);
       if (!user) return;
-      triggerScan("manual", MANUAL_SCAN_LOOKBACK_DAYS);
+      triggerScan(user.account, "manual", MANUAL_SCAN_LOOKBACK_DAYS);
       return sendJson(res, 202, { ok: true, message: "Detayli tarama baslatildi" });
     }
 
@@ -332,71 +352,115 @@ function serveStatic(req, res, url) {
   res.end(body);
 }
 
-function buildPayload() {
-  const receipts = sanitizeReceipts(state.receipts);
+function buildPayload(account = "limon") {
+  const receipts = receiptsForAccount(account);
+  const health = getAccountHealth(account);
   return {
     receipts,
     stats: {
       todayTotal: receipts.reduce((sum, r) => sum + Number(r.amount || 0), 0),
       totalCount: receipts.length,
-      lastScanAt: state.health.lastScanAt || ""
+      lastScanAt: health.lastScanAt || ""
     },
-    health: state.health
+    health
   };
 }
 
-function broadcast(type, payload) {
-  const data = `event: ${type}\ndata: ${JSON.stringify(payload)}\n\n`;
+function receiptsForAccount(account = "limon") {
+  return sanitizeReceipts(state.receipts).filter((receipt) => receiptAccount(receipt) === account);
+}
+
+function receiptAccount(receipt) {
+  return String(receipt && receipt.account ? receipt.account : "limon");
+}
+
+function getAccountHealth(account = "limon") {
+  const healthRoot = state.health && typeof state.health === "object" ? state.health : {};
+  if (healthRoot.accounts && healthRoot.accounts[account]) return healthRoot.accounts[account];
+  if (account === "limon" && !healthRoot.accounts) return healthRoot;
+  return {
+    status: "idle",
+    message: "Mail kaynagi bekleniyor",
+    mailConfigured: Boolean(MAIL_ACCOUNTS[account] && MAIL_ACCOUNTS[account].email && MAIL_ACCOUNTS[account].password)
+  };
+}
+
+function setAccountHealth(account, health) {
+  const previous = state.health && typeof state.health === "object" ? state.health : {};
+  const accounts = { ...(previous.accounts || {}) };
+  accounts[account] = health;
+  state.health = { accounts };
+}
+
+function broadcast(type, payload, account = null) {
   for (const client of [...clients]) {
-    try { client.write(data); } catch (error) { clients.delete(client); }
+    if (account && client.account !== account) continue;
+    const data = `event: ${type}\ndata: ${JSON.stringify(payload || buildPayload(client.account))}\n\n`;
+    try { client.res.write(data); } catch (error) { clients.delete(client); }
   }
 }
 
 function startScanLoop() {
   let firstRun = true;
   const run = async () => {
-    await triggerScan(firstRun ? "startup" : "interval", firstRun ? SCAN_LOOKBACK_DAYS : null);
+    const accounts = Object.keys(MAIL_ACCOUNTS);
+    await Promise.all(accounts.map((account) => triggerScan(account, firstRun ? "startup" : "interval", firstRun ? SCAN_LOOKBACK_DAYS : null)));
     firstRun = false;
     scanTimer = setTimeout(run, SCAN_INTERVAL_MS);
   };
   scanTimer = setTimeout(run, 300);
 }
 
-async function triggerScan(mode = "interval", lookbackDays = SCAN_LOOKBACK_DAYS) {
-  if (scanBusy) return;
-  scanBusy = true;
-  state.health = { ...state.health, status: "scanning", message: "Son dekontlar okunuyor", startedAt: new Date().toISOString() };
-  broadcast("status", buildPayload());
+async function triggerScan(account = "limon", mode = "interval", lookbackDays = SCAN_LOOKBACK_DAYS) {
+  const source = MAIL_ACCOUNTS[account];
+  if (!source) return;
+  if (!source.email || !source.password) {
+    setAccountHealth(account, {
+      status: "idle",
+      message: "Mail kaynagi bekleniyor",
+      lastScanAt: new Date().toISOString(),
+      mailAddress: "",
+      mailConfigured: false,
+      newCount: 0
+    });
+    broadcast("status", buildPayload(account), account);
+    scheduleSave();
+    return;
+  }
+  if (scanBusyAccounts.has(account)) return;
+  scanBusyAccounts.add(account);
+  setAccountHealth(account, { ...getAccountHealth(account), status: "scanning", message: "Son dekontlar okunuyor", startedAt: new Date().toISOString() });
+  broadcast("status", buildPayload(account), account);
   try {
-    const result = await scanMail({ mode, lookbackDays });
-    state.health = {
+    const result = await scanMail(source, { mode, lookbackDays });
+    setAccountHealth(account, {
       status: "ok",
       message: result.newReceipts.length ? `${result.newReceipts.length} yeni dekont eklendi` : "Dekont okuma tamamlandi",
       lastScanAt: new Date().toISOString(),
       scannedCandidates: result.candidates,
       processedCandidates: result.processed,
       skippedCandidates: result.skipped,
-      mailAddress: maskEmail(MAIL_ADDRESS),
-      mailConfigured: Boolean(MAIL_ADDRESS && MAIL_PASSWORD),
+      mailAddress: maskEmail(source.email),
+      mailConfigured: true,
       newCount: result.newReceipts.length
-    };
+    });
     scheduleSave();
-    broadcast("receipts", { ...buildPayload(), newReceipts: result.newReceipts });
+    broadcast("receipts", { ...buildPayload(account), newReceipts: result.newReceipts }, account);
   } catch (error) {
-    state.health = { status: "error", message: sanitizeError(error), lastScanAt: new Date().toISOString() };
-    broadcast("status", buildPayload());
+    setAccountHealth(account, { status: "error", message: sanitizeError(error), lastScanAt: new Date().toISOString(), mailAddress: maskEmail(source.email), mailConfigured: true });
+    broadcast("status", buildPayload(account), account);
     scheduleSave();
   } finally {
-    scanBusy = false;
+    scanBusyAccounts.delete(account);
   }
 }
 
-async function scanMail({ mode = "interval", lookbackDays }) {
-  if (!MAIL_ADDRESS || !MAIL_PASSWORD) {
+async function scanMail(source, { mode = "interval", lookbackDays }) {
+  if (!source.email || !source.password) {
     throw new Error("Mail bilgileri eksik. DEKONT_MAIL ve DEKONT_APP_PASSWORD gerekli.");
   }
-  const imap = new ImapClient(MAIL_ADDRESS, MAIL_PASSWORD);
-  const hasHistory = state.receipts.length > 0;
+  const imap = new ImapClient(source.email, source.password);
+  const hasHistory = receiptsForAccount(source.account).length > 0;
   const fullScan = mode === "manual" || (mode === "startup" && !hasHistory);
   const since = fullScan
     ? new Date(Date.now() - (lookbackDays || SCAN_LOOKBACK_DAYS) * 24 * 60 * 60 * 1000)
@@ -410,17 +474,17 @@ async function scanMail({ mode = "interval", lookbackDays }) {
     await imap.login();
     const targets = await imap.searchReceiptCandidatesSince(since, searchOptions);
     const known = new Set(state.seen);
-    const receiptKnown = new Set(state.receipts.map((r) => r.identityKey || r.id));
+    const receiptKnown = new Set(receiptsForAccount(source.account).map((r) => r.identityKey || r.id));
     const shouldRecheckRecent = mode === "manual";
-    const freshTargets = (shouldRecheckRecent ? targets : targets.filter((t) => !known.has(`${t.mailbox}:${t.uid}`))).slice(-fetchLimit);
+    const freshTargets = (shouldRecheckRecent ? targets : targets.filter((t) => !known.has(`${source.account}:${t.mailbox}:${t.uid}`))).slice(-fetchLimit);
     const messages = await imap.fetchMessages(freshTargets);
     const newReceipts = [];
     let processed = 0;
     let skipped = 0;
     for (const message of messages) {
       processed += 1;
-      const key = `${message.mailbox}:${message.uid}`;
-      const parsed = parseReceipt(message.uid, message.raw, message.mailbox);
+      const key = `${source.account}:${message.mailbox}:${message.uid}`;
+      const parsed = parseReceipt(message.uid, message.raw, message.mailbox, source.account);
       if (!parsed) {
         skipped += 1;
         continue;
@@ -544,7 +608,7 @@ class ImapClient {
   close() { try { if (this.socket) this.socket.destroy(); } catch (_) {} }
 }
 
-function parseReceipt(uid, raw, mailbox) {
+function parseReceipt(uid, raw, mailbox, account = "limon") {
   const root = parseEntity(String(raw || ""));
   const subject = decodeMimeWords(root.headers.subject || "");
   const from = decodeMimeWords(root.headers.from || "");
@@ -563,9 +627,9 @@ function parseReceipt(uid, raw, mailbox) {
   const desc = details.description || inferDescription(body) || "Aciklama yok";
   const transactionTime = details.transactionTime || inferDate(body) || parseDate(root.headers.date) || "";
   const receivedAt = parseDate(root.headers.date) || new Date().toISOString();
-  const identityKey = messageId || `${normalizeSearch(sender)}:${amount.toFixed(2)}:${normalizeSearch(transactionTime || receivedAt)}`;
+  const identityKey = `${account}:${messageId || `${normalizeSearch(sender)}:${amount.toFixed(2)}:${normalizeSearch(transactionTime || receivedAt)}`}`;
   const id = crypto.createHash("sha1").update(identityKey + ":" + uid).digest("hex").slice(0, 12).toUpperCase();
-  return { id, uid: String(uid), mailbox, messageId, identityKey, sender, senderBank, amount, currency: "TRY", desc, transactionTime, receivedAt, time: shortTime(transactionTime || receivedAt), status: "Yeni geldi", subject };
+  return { id, account, uid: String(uid), mailbox, messageId, identityKey, sender, senderBank, amount, currency: "TRY", desc, transactionTime, receivedAt, time: shortTime(transactionTime || receivedAt), status: "Yeni geldi", subject };
 }
 
 function isKuveytReceipt(text) {
@@ -1029,7 +1093,7 @@ function dedupeReceipts(receipts) {
   const seen = new Set();
   const out = [];
   for (const receipt of sortReceipts(receipts)) {
-    const key = receipt.identityKey || receipt.messageId || receipt.id;
+    const key = `${receiptAccount(receipt)}:${receipt.identityKey || receipt.messageId || receipt.id}`;
     if (seen.has(key)) continue;
     seen.add(key);
     out.push(receipt);
