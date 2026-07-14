@@ -46,6 +46,58 @@ const RECEIPT_FIELD_LABELS = [
   "Tarih",
   "Saat"
 ];
+const RECEIPT_FIELD_ALIASES = {
+  amount: [
+    "Tutar",
+    "Gelen Tutar",
+    "Islem Tutari",
+    "Islem Tutar",
+    "Hesaba Gelen Tutar",
+    "Havale Tutari",
+    "EFT Tutari",
+    "Transfer Tutari",
+    "Odeme Tutari",
+    "Para Girisi"
+  ],
+  sender: [
+    "Gonderen",
+    "Gonderen Adi",
+    "Gonderen Ad Soyad",
+    "Gonderen Adi Soyadi",
+    "Gonderen Unvani",
+    "Gonderen Kisi",
+    "Gonderen Musteri",
+    "Gonderen Hesap Sahibi",
+    "Hesap Sahibi",
+    "Islem Sahibi"
+  ],
+  senderBank: [
+    "Gonderen Bankasi",
+    "Gonderen Banka",
+    "Karsi Banka",
+    "Gonderici Banka",
+    "Gonderici Bankasi",
+    "Banka Adi"
+  ],
+  description: [
+    "Aciklama",
+    "Islem Aciklamasi",
+    "Odeme Aciklamasi",
+    "Transfer Aciklamasi",
+    "EFT Aciklamasi",
+    "Havale Aciklamasi",
+    "Dekont Aciklamasi"
+  ],
+  transactionTime: [
+    "Islem Zamani",
+    "Islem Tarihi",
+    "Islem Saati",
+    "Tarih Saat",
+    "Tarih",
+    "Gerceklesme Zamani"
+  ]
+};
+const RECEIPT_FIELD_LOOKUP = buildReceiptFieldLookup();
 
 fs.mkdirSync(DATA_DIR, { recursive: true });
 const sessions = new Map();
@@ -440,21 +492,24 @@ class ImapClient {
 }
 
 function parseReceipt(uid, raw, mailbox) {
-  const headers = parseHeaders(raw);
-  const subject = decodeMimeWords(headers.subject || "");
-  const from = decodeMimeWords(headers.from || "");
-  const messageId = normalizeMessageId(headers["message-id"] || "");
-  const body = cleanText(extractText(raw));
+  const root = parseEntity(String(raw || ""));
+  const subject = decodeMimeWords(root.headers.subject || "");
+  const from = decodeMimeWords(root.headers.from || "");
+  const messageId = normalizeMessageId(root.headers["message-id"] || "");
+  const text = cleanText(extractMimeText(String(raw || "")));
+  const htmlText = cleanText(htmlToText(extractMimeHtml(String(raw || ""))));
+  const body = cleanText(`${text}\n${htmlText}` || extractText(raw));
   const searchable = normalizeSearch(`${subject}\n${from}\n${body}`);
   if (!isKuveytReceipt(searchable)) return null;
-  const amount = findAmount(body);
+  const details = extractReceiptDetails(body);
+  const amount = details.amount || findAmount(body);
   if (!amount) return null;
-  const sender = findField(body, [/g[oö]nderen(?:\s+ad[ıi]\s+soyad[ıi])?/i, /g[oö]nderen\s+ad\s+soyad/i, /ad[ıi]\s+soyad[ıi]/i, /g[oö]nderen/i]) || inferSender(body);
+  const sender = details.sender || inferSender(body);
   if (!isValidSender(sender)) return null;
-  const senderBank = findField(body, [/g[oö]nderen\s+banka(?:s[ıi])?/i, /banka(?:s[ıi])?/i]) || "Banka bilgisi yok";
-  const desc = findField(body, [/a[çc][ıi]klama(?:s[ıi])?/i, /i[şs]lem\s+a[çc][ıi]klama(?:s[ıi])?/i]) || inferDescription(body) || "Aciklama yok";
-  const transactionTime = findField(body, [/i[şs]lem\s+zaman[ıi]/i, /tarih/i, /saat/i]) || inferDate(body) || parseDate(headers.date) || "";
-  const receivedAt = parseDate(headers.date) || new Date().toISOString();
+  const senderBank = details.senderBank || "Banka bilgisi yok";
+  const desc = details.description || inferDescription(body) || "Aciklama yok";
+  const transactionTime = details.transactionTime || inferDate(body) || parseDate(root.headers.date) || "";
+  const receivedAt = parseDate(root.headers.date) || new Date().toISOString();
   const identityKey = messageId || `${normalizeSearch(sender)}:${amount.toFixed(2)}:${normalizeSearch(transactionTime || receivedAt)}`;
   const id = crypto.createHash("sha1").update(identityKey + ":" + uid).digest("hex").slice(0, 12).toUpperCase();
   return { id, uid: String(uid), mailbox, messageId, identityKey, sender, senderBank, amount, currency: "TRY", desc, transactionTime, receivedAt, time: shortTime(transactionTime || receivedAt), status: "Yeni geldi", subject };
@@ -491,6 +546,67 @@ function parseHeaders(raw) {
     if (index > 0) headers[line.slice(0, index).toLowerCase()] = line.slice(index + 1).trim();
   }
   return headers;
+}
+
+function parseEntity(raw) {
+  const text = String(raw || "");
+  const match = text.match(/\r?\n\r?\n/);
+  const split = match ? match.index : -1;
+  const headerText = split === -1 ? text : text.slice(0, split);
+  const body = split === -1 ? "" : text.slice(split + match[0].length);
+  const unfolded = headerText.replace(/\r?\n[ \t]+/g, " ");
+  const headers = {};
+  for (const line of unfolded.split(/\r?\n/)) {
+    const index = line.indexOf(":");
+    if (index > 0) headers[line.slice(0, index).trim().toLowerCase()] = line.slice(index + 1).trim();
+  }
+  return { headers, body };
+}
+
+function extractMimeText(raw) {
+  const entity = parseEntity(raw);
+  const contentType = String(entity.headers["content-type"] || "text/plain").toLowerCase();
+  const boundary = getHeaderParam(entity.headers["content-type"], "boundary");
+  if (contentType.includes("multipart/") && boundary) {
+    const parts = splitMultipart(entity.body, boundary).map(extractMimeText).filter(Boolean);
+    const plain = parts.find((part) => !/<[a-z][\s\S]*>/i.test(part));
+    return plain || parts.join("\n");
+  }
+  const decoded = decodeTransfer(entity.body, entity.headers["content-transfer-encoding"]);
+  return contentType.includes("text/html") ? htmlToText(decoded) : decoded;
+}
+
+function extractMimeHtml(raw) {
+  const entity = parseEntity(raw);
+  const contentType = String(entity.headers["content-type"] || "text/plain").toLowerCase();
+  const boundary = getHeaderParam(entity.headers["content-type"], "boundary");
+  if (contentType.includes("multipart/") && boundary) {
+    const parts = splitMultipart(entity.body, boundary).map(extractMimeHtml).filter(Boolean);
+    return parts.find((part) => /<html|<body|<table|<div/i.test(part)) || parts[0] || "";
+  }
+  const decoded = decodeTransfer(entity.body, entity.headers["content-transfer-encoding"]);
+  return contentType.includes("text/html") ? decoded : "";
+}
+
+function splitMultipart(body, boundary) {
+  const marker = `--${boundary}`;
+  return String(body || "")
+    .split(marker)
+    .slice(1)
+    .map((part) => part.replace(/^\r?\n/, "").replace(/\r?\n--\s*$/, ""))
+    .filter((part) => part.trim() && !part.trim().startsWith("--"));
+}
+
+function getHeaderParam(value, param) {
+  const match = String(value || "").match(new RegExp(`${param}="?([^";]+)"?`, "i"));
+  return match ? match[1] : "";
+}
+
+function decodeTransfer(body, encoding = "") {
+  const normalized = String(encoding || "").toLowerCase();
+  if (normalized.includes("base64")) return Buffer.from(String(body || "").replace(/\s+/g, ""), "base64").toString("utf8");
+  if (normalized.includes("quoted-printable")) return decodeQuotedPrintable(body);
+  return String(body || "");
 }
 
 function extractText(raw) {
@@ -536,14 +652,48 @@ function normalizeMessageId(value) { return String(value || "").trim().replace(/
 
 function compactSearch(value) { return normalizeSearch(value).replace(/[^a-z0-9]+/g, ""); }
 
-function receiptLines(text) {
-  let output = cleanText(text);
-  for (const label of RECEIPT_FIELD_LABELS) {
-    const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\s+/g, "\\s+");
-    output = output.replace(new RegExp(`([\\s\\-|,;]+)(${escaped})\\s*[:：]`, "gi"), "\n$2:");
+function buildReceiptFieldLookup() {
+  const entries = [];
+  for (const [key, aliases] of Object.entries(RECEIPT_FIELD_ALIASES)) {
+    for (const raw of aliases) {
+      const label = normalizeSearch(raw);
+      entries.push({ key, raw, label, compact: compactSearch(label) });
+    }
   }
-  return output.split(/\n+/).map((line) => line.replace(/\s+/g, " ").trim()).filter(Boolean);
+  return entries.sort((a, b) => b.compact.length - a.compact.length);
 }
+
+function receiptLines(text) {
+  return insertReceiptFieldBreaks(String(text || ""))
+    .split(/\n+/)
+    .map((line) => line.replace(/\s+/g, " ").trim())
+    .filter(Boolean);
+}
+
+function insertReceiptFieldBreaks(text) {
+  let output = String(text || "").replace(/\r/g, "\n");
+  for (const label of RECEIPT_FIELD_LOOKUP) {
+    const pattern = new RegExp(`([\\s\\-|,;]+)(${labelPattern(label.raw)})\\s*[:\\uFF1A]`, "gi");
+    output = output.replace(pattern, "\n$2:");
+  }
+  return output;
+}
+
+function labelPattern(label) {
+  return String(label || "").split("").map((char) => {
+    const lower = char.toLocaleLowerCase("tr-TR");
+    if (/\s/.test(char)) return "\\s+";
+    if (lower === "c") return "[cC\\u00e7\\u00c7]";
+    if (lower === "g") return "[gG\\u011f\\u011e]";
+    if (lower === "i" || lower === "\u0131") return "[iI\\u0131\\u0130]";
+    if (lower === "o") return "[oO\\u00f6\\u00d6]";
+    if (lower === "s") return "[sS\\u015f\\u015e]";
+    if (lower === "u") return "[uU\\u00fc\\u00dc]";
+    return escapeRegExp(char);
+  }).join("");
+}
+
+function escapeRegExp(value) { return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); }
 
 function findField(text, labels) {
   const lines = receiptLines(text);
@@ -569,26 +719,181 @@ function isUsableFieldValue(value, ownLabels = []) {
   return !blocked.some((label) => normalized === label || normalized.startsWith(`${label}:`));
 }
 
-function findAmount(text) {
-  const normalized = String(text || "");
-  const contextual = normalized.match(/(?:tutar|miktar|gelen tutar|para giri[şs]i|hesaba gelen)[^0-9₺]{0,50}((?:\d{1,3}(?:[.,]\d{3})+|\d+)(?:[.,]\d{2})?)\s*(?:TL|TRY|₺)?/i);
-  const any = normalized.match(/((?:\d{1,3}(?:[.,]\d{3})+|\d+)(?:[.,]\d{2})?)\s*(?:TL|TRY|₺)/i);
-  return parseAmount((contextual && contextual[1]) || (any && any[1]) || "");
+function extractReceiptDetails(text) {
+  const lines = receiptLines(text);
+  const fields = collectReceiptFields(lines);
+  const amountText = firstReceiptField(fields, "amount") || findLabelField(lines, RECEIPT_FIELD_ALIASES.amount);
+  const senderText = firstReceiptField(fields, "sender") || findLabelField(lines, RECEIPT_FIELD_ALIASES.sender, ["Banka", "IBAN", "Tutar"]);
+  const bankText = firstReceiptField(fields, "senderBank") || findLabelField(lines, RECEIPT_FIELD_ALIASES.senderBank);
+  const descriptionText = firstReceiptField(fields, "description") || findLabelField(lines, RECEIPT_FIELD_ALIASES.description);
+  const timeText = firstReceiptField(fields, "transactionTime") || findLabelField(lines, RECEIPT_FIELD_ALIASES.transactionTime);
+
+  return {
+    amount: parseAmount(amountText) || parseContextualAmount(text),
+    sender: sanitizeReceiptValue(senderText || inferSenderFromSentence(text), "sender"),
+    senderBank: sanitizeReceiptValue(bankText, "senderBank"),
+    description: sanitizeReceiptValue(descriptionText || inferDescription(text), "description"),
+    transactionTime: sanitizeReceiptValue(timeText || inferDate(text), "transactionTime")
+  };
 }
 
-function parseAmount(value) {
-  let text = String(value || "").replace(/[^0-9.,]/g, "");
-  if (!text) return 0;
-  const lastComma = text.lastIndexOf(",");
-  const lastDot = text.lastIndexOf(".");
-  const decimalIndex = Math.max(lastComma, lastDot);
-  if (decimalIndex >= 0 && text.length - decimalIndex <= 3) {
-    text = text.slice(0, decimalIndex).replace(/[.,]/g, "") + "." + text.slice(decimalIndex + 1);
-  } else {
-    text = text.replace(/[.,]/g, "");
+function collectReceiptFields(lines) {
+  const fields = { amount: [], sender: [], senderBank: [], description: [], transactionTime: [] };
+  for (let index = 0; index < lines.length; index += 1) {
+    const match = matchReceiptField(lines[index]);
+    if (!match) continue;
+    let value = sanitizeReceiptValue(match.value, match.key);
+    if (!isUsableReceiptValue(value, match.key)) value = findNextReceiptValue(lines, index, match.key);
+    if (isUsableReceiptValue(value, match.key)) fields[match.key].push(value);
   }
-  const amount = Number(text);
-  return Number.isFinite(amount) ? amount : 0;
+  return fields;
+}
+
+function matchReceiptField(line) {
+  const colonIndex = firstColonIndex(line);
+  const labelPart = colonIndex === -1 ? line : line.slice(0, colonIndex);
+  const normalizedLabel = normalizeSearch(labelPart).replace(/^[^a-z0-9]+/, "").trim();
+  const normalizedLine = normalizeSearch(line).replace(/^[^a-z0-9]+/, "").trim();
+  const compactLabel = compactSearch(normalizedLabel);
+  const compactLine = compactSearch(normalizedLine);
+  const matched = RECEIPT_FIELD_LOOKUP.find((field) => compactLabel === field.compact || compactLabel.endsWith(field.compact) || compactLine.startsWith(field.compact));
+  if (!matched) return null;
+  const value = colonIndex === -1 ? removeReceiptLabel(line, matched.raw) : line.slice(colonIndex + 1);
+  return { key: matched.key, value };
+}
+
+function firstColonIndex(value) {
+  const text = String(value || "");
+  const indexes = [text.indexOf(":"), text.indexOf("\uFF1A"), text.indexOf("：")].filter((index) => index >= 0);
+  return indexes.length ? Math.min(...indexes) : -1;
+}
+
+function removeReceiptLabel(line, label) {
+  const pattern = new RegExp(`^\\s*[-*]?\\s*${labelPattern(label)}\\s*[:\\uFF1A\\-]?\\s*`, "i");
+  return String(line || "").replace(pattern, "").trim();
+}
+
+function findNextReceiptValue(lines, index, key) {
+  for (let offset = 1; offset <= 3; offset += 1) {
+    const next = lines[index + offset];
+    if (!next || matchReceiptField(next) || looksLikeLabel(next)) break;
+    const value = sanitizeReceiptValue(next, key);
+    if (isUsableReceiptValue(value, key)) return value;
+  }
+  return "";
+}
+
+function firstReceiptField(fields, key) {
+  const values = fields[key] || [];
+  return values.find((value) => isUsableReceiptValue(value, key)) || "";
+}
+
+function sanitizeReceiptValue(value, key) {
+  let cleaned = truncateAtNextReceiptLabel(String(value || ""))
+    .replace(/^[\s:;\-\|]+/, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (key === "amount") return cleaned;
+  return cleaned
+    .replace(/^(adi soyadi|adi|soyadi|unvani)\s*[:;\-]?\s*/i, "")
+    .replace(/\s+[,;:.-]*$/, "")
+    .trim();
+}
+
+function isUsableReceiptValue(value, key) {
+  const cleaned = String(value || "").trim();
+  if (!cleaned) return false;
+  const normalized = normalizeSearch(cleaned);
+  if (normalized.includes("kuveyt turk bilgilendirme") || normalized.includes("hesabiniza para geldi") || normalized === "belirtilmedi" || looksLikeLabel(cleaned)) return false;
+  if (key === "amount") return parseAmount(cleaned) > 0;
+  if (key === "sender" || key === "senderBank") return /[a-zA-ZÇĞİÖŞÜçğıöşü]/.test(cleaned) && cleaned.length <= 140;
+  if (key === "description") return cleaned.length <= 260;
+  return cleaned.length <= 120;
+}
+
+function truncateAtNextReceiptLabel(value) {
+  let end = String(value || "").length;
+  for (const field of RECEIPT_FIELD_LOOKUP) {
+    const pattern = new RegExp(`\\s+${labelPattern(field.raw)}\\s*[:\\uFF1A]`, "i");
+    const match = pattern.exec(value);
+    if (match && match.index > 0 && match.index < end) end = match.index;
+  }
+  return String(value || "").slice(0, end);
+}
+
+function looksLikeLabel(value) {
+  const compact = compactSearch(value || "");
+  return RECEIPT_FIELD_LOOKUP.some((field) => compact.startsWith(field.compact));
+}
+
+function findLabelField(lines, labels, excludes = []) {
+  const normalizedLabels = labels.map(normalizeSearch);
+  const normalizedExcludes = excludes.map(normalizeSearch);
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index];
+    const normalizedLine = normalizeSearch(line);
+    const compactLine = normalizedLine.replace(/\s+/g, "");
+    let matchedCompactLabel = "";
+    const matchedLabel = normalizedLabels.find((label) => {
+      const compactLabel = label.replace(/\s+/g, "");
+      const matches = normalizedLine === label || normalizedLine.startsWith(`${label}:`) || normalizedLine.startsWith(`${label} `) || compactLine.startsWith(`${compactLabel}:`) || compactLine.startsWith(compactLabel);
+      if (matches) matchedCompactLabel = compactLabel;
+      return matches;
+    });
+    const hasExclude = normalizedExcludes.some((label) => normalizedLine.includes(label) || compactLine.includes(label.replace(/\s+/g, "")));
+    if (!matchedLabel || hasExclude || normalizedLine.length > 160) continue;
+    const value = line.split(/:|：/).slice(1).join(":").trim();
+    if (value) return value;
+    const compactRemainder = compactLine.replace(matchedCompactLabel, "").replace(/^[:\s-]+/, "").trim();
+    const cleaned = normalizedLine.replace(matchedLabel, "").replace(/^[:\s-]+/, "").trim();
+    if (compactRemainder.length && cleaned.length > 2) return removeReceiptLabel(line, matchedLabel);
+    const next = lines[index + 1];
+    if (next && !looksLikeLabel(next)) return next.trim();
+  }
+  return "";
+}
+
+function parseContextualAmount(text) {
+  const lines = receiptLines(text);
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index] || "";
+    const normalized = normalizeSearch(line);
+    if (normalized.includes("tutar") || normalized.includes("gelen tutar") || normalized.includes("para girisi") || normalized.includes("hesaba gelen")) {
+      const amount = parseAmount([line, lines[index + 1] || "", lines[index - 1] || ""].join(" "));
+      if (amount > 0) return amount;
+    }
+  }
+  return 0;
+}
+
+function findAmount(text) {
+  return parseAmount(text);
+}
+
+function parseAmount(text) {
+  const normalized = String(text || "").replace(/\s+/g, " ");
+  const hasAmountLabel = /(?:tutar|islem tutari|islem tutar|gelen tutar|havale tutari|eft tutari|transfer tutari|odeme tutari|para girisi|hesaba gelen)/i.test(normalized);
+  if (normalized.length > 120 && !hasAmountLabel) return 0;
+  const labelMatch = normalized.match(/(?:tutar|islem tutari|islem tutar|gelen tutar|havale tutari|eft tutari|transfer tutari|odeme tutari|para girisi|hesaba gelen)[^0-9]{0,40}([0-9][0-9.,\s]*)\s*(?:tl|try|₺)?/i);
+  const fallbackMatch = normalized.match(/([0-9][0-9.,\s]*)\s*(?:tl|try|₺)/i);
+  return parseLocalizedAmount((labelMatch && labelMatch[1]) || (fallbackMatch && fallbackMatch[1]) || "0");
+}
+
+function parseLocalizedAmount(value) {
+  const raw = String(value || "").replace(/[^\d.,]/g, "");
+  if (!raw) return 0;
+  const lastDot = raw.lastIndexOf(".");
+  const lastComma = raw.lastIndexOf(",");
+  const decimalSeparator = lastDot > lastComma ? "." : ",";
+  const hasDecimal = /[.,]\d{1,2}$/.test(raw);
+  if (raw.includes(".") && raw.includes(",")) {
+    return Number(raw.replace(new RegExp(`\\${decimalSeparator === "." ? "," : "."}`, "g"), "").replace(decimalSeparator, ".")) || 0;
+  }
+  if (hasDecimal) {
+    const separator = lastDot !== -1 ? "." : ",";
+    return Number(raw.replace(separator, ".")) || 0;
+  }
+  return Number(raw.replace(/[.,]/g, "")) || 0;
 }
 
 function inferSender(text) {
@@ -600,6 +905,20 @@ function inferSender(text) {
     line.match(/(.{3,90}?)\s+taraf[ıi]ndan/i) ||
     line.match(/g[oö]nderen(?:\s+ad[ıi]\s+soyad[ıi])?\s*[:：]\s*(.{3,90})/i);
   return match ? sanitizeValue(match[1]) : "";
+}
+
+function inferSenderFromSentence(text) {
+  const lines = receiptLines(text);
+  for (const line of lines) {
+    const match =
+      line.match(/\bsaatinde\s+(.{3,100}?)\s+adl[ıi]\s+ki[şs]iden\b/i) ||
+      line.match(/(.{3,100}?)\s+taraf[ıi]ndan\s+(?:hesab[ıi]n[ıi]za|hesabiniza|taraf[ıi]n[ıi]za)/i);
+    if (match) {
+      const value = sanitizeReceiptValue(match[1], "sender");
+      if (isUsableReceiptValue(value, "sender")) return value;
+    }
+  }
+  return "";
 }
 
 function inferDescription(text) {
