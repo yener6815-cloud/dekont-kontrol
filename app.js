@@ -91,6 +91,14 @@ function enterApp(user) {
   state.page = Number(localStorage.getItem(storageKey("page")) || 1);
   state.cashbox = loadCashbox();
   state.totalAdjustment = Number(localStorage.getItem(storageKey("totalAdjustment")) || 0);
+  state.receipts = [];
+  state.health = {};
+  state.stats = {};
+  state.search = "";
+  state.liveReady = false;
+  state.lastReceiptRenderKey = "";
+  state.lastStatsRenderKey = "";
+  if (searchInput) searchInput.value = "";
   document.body.dataset.panelTheme = theme;
   const displayName = user.name || user.username || "Limon Admin";
   welcomeTitle.textContent = `${displayName}`;
@@ -110,6 +118,7 @@ function enterApp(user) {
     setTimeout(() => dashboardView.classList.remove("panel-fade-in"), 420);
   }, 260);
   connectEvents();
+  renderAll({ receiptsChanged: true });
   fetchReceipts("silent");
   renderCashbox();
 }

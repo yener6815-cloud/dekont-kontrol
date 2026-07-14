@@ -47,15 +47,15 @@ body[data-panel-theme="limon"] {
     #050607;
 }
 body[data-panel-theme="musti"] {
-  --gold: #f1bd55;
-  --gold-soft: #ffe2a0;
-  --mint: #58d8ff;
-  --line: rgba(88, 216, 255, .24);
+  --gold: #ff6a2a;
+  --gold-soft: #ffb08a;
+  --mint: #e3185f;
+  --line: rgba(227, 24, 95, .26);
   background:
-    radial-gradient(circle at 82% 6%, rgba(88,216,255,.23), transparent 30%),
-    radial-gradient(circle at 12% 80%, rgba(229,182,75,.18), transparent 28%),
-    linear-gradient(132deg, rgba(7,22,40,.36), transparent 42%),
-    #040609;
+    radial-gradient(circle at 84% 8%, rgba(227,24,95,.28), transparent 30%),
+    radial-gradient(circle at 14% 78%, rgba(255,106,42,.20), transparent 30%),
+    linear-gradient(132deg, rgba(52,5,22,.36), transparent 42%),
+    #060407;
 }
 .hidden { display: none !important; }
 .login-view,
@@ -120,20 +120,23 @@ button:active { transform: scale(.97); }
 .hero-panel::after { content: ""; position: absolute; inset: 0; background: url('/limon.svg') center / min(520px, 80vw) auto no-repeat; opacity: .08; filter: blur(2px); }
 body[data-panel-theme="musti"] .hero-panel {
   background:
-    radial-gradient(circle at 78% 20%, rgba(88,216,255,.16), transparent 36%),
-    linear-gradient(135deg, rgba(35,25,8,.82), rgba(5,13,24,.76) 48%, rgba(4,5,8,.90));
+    radial-gradient(circle at 78% 20%, rgba(227,24,95,.18), transparent 38%),
+    radial-gradient(circle at 12% 86%, rgba(255,106,42,.18), transparent 34%),
+    linear-gradient(135deg, rgba(51,8,25,.86), rgba(16,5,12,.78) 48%, rgba(5,4,7,.92));
 }
 body[data-panel-theme="musti"] .hero-panel::after {
-  background-image: url('/musti.svg');
-  opacity: .10;
+  background-image: url('/musti-logo.jpeg');
+  background-size: min(430px, 70vw) auto;
+  opacity: .11;
+  filter: blur(5px) saturate(1.12);
 }
 body[data-panel-theme="musti"] .welcome-box,
 body[data-panel-theme="musti"] .clock-box,
 body[data-panel-theme="musti"] .stats-grid article,
 body[data-panel-theme="musti"] .tools-row,
 body[data-panel-theme="musti"] .receipt-card {
-  border-color: rgba(88,216,255,.20);
-  box-shadow: 0 18px 55px rgba(0,0,0,.34), 0 0 34px rgba(88,216,255,.045), inset 0 1px 0 rgba(255,255,255,.04);
+  border-color: rgba(227,24,95,.24);
+  box-shadow: 0 18px 55px rgba(0,0,0,.34), 0 0 36px rgba(227,24,95,.06), inset 0 1px 0 rgba(255,255,255,.04);
 }
 .hero-panel > * { position: relative; z-index: 1; }
 .hero-panel h2 { margin: 0 0 10px; font-size: clamp(46px, 10vw, 74px); line-height: .92; }
@@ -267,11 +270,26 @@ body[data-panel-theme="musti"] .receipt-card {
   animation: logoBreath 1800ms ease-in-out infinite alternate;
 }
 body[data-panel-theme="musti"] .welcome-overlay::before {
-  background-image: url("/musti.svg");
+  background-image: url("/musti-logo.jpeg");
+  opacity: .12;
+  filter: blur(20px) saturate(1.16);
 }
 body[data-panel-theme="musti"] .welcome-logo {
-  border-color: rgba(88,216,255,.34);
-  box-shadow: 0 0 54px rgba(88,216,255,.16), inset 0 0 24px rgba(229,182,75,.07);
+  width: 148px;
+  height: 148px;
+  border-radius: 34px;
+  border-color: rgba(227,24,95,.36);
+  box-shadow: 0 0 58px rgba(227,24,95,.20), inset 0 0 24px rgba(255,106,42,.08);
+}
+body[data-panel-theme="musti"] .welcome-logo img,
+body[data-panel-theme="musti"] .mini-logo {
+  border-radius: 50%;
+  object-fit: cover;
+}
+body[data-panel-theme="musti"] .welcome-box strong {
+  background: linear-gradient(135deg, #fff3ec, #ff6a2a 38%, #e3185f 72%, #ffd0c0);
+  -webkit-background-clip: text;
+  color: transparent;
 }
 .welcome-overlay::after {
   content: "";

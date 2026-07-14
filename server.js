@@ -135,7 +135,7 @@ function buildPanelUsers() {
       name: "Musti Admin",
       account: "musti",
       theme: "musti",
-      logo: "/musti.svg",
+      logo: "/musti-logo.jpeg",
       sourceLabel: "Musti paneli bagimsiz veri kaynagiyla calisir."
     }
   ];
@@ -333,7 +333,7 @@ function serveStatic(req, res, url) {
     "/styles.css": "styles.css",
     "/logo.svg": "logo.svg",
     "/limon.svg": "limon.svg",
-    "/musti.svg": "musti.svg",
+    "/musti-logo.jpeg": "musti-logo.jpeg",
     "/og-card.svg": "og-card.svg"
   };
   const file = fileMap[url.pathname];
@@ -343,12 +343,15 @@ function serveStatic(req, res, url) {
     return;
   }
   const full = path.join(ROOT, file);
-  const types = { ".html": "text/html; charset=utf-8", ".js": "application/javascript; charset=utf-8", ".css": "text/css; charset=utf-8", ".svg": "image/svg+xml" };
+  const types = { ".html": "text/html; charset=utf-8", ".js": "application/javascript; charset=utf-8", ".css": "text/css; charset=utf-8", ".svg": "image/svg+xml", ".jpeg": "image/jpeg", ".jpg": "image/jpeg" };
   let body = fs.readFileSync(full);
   if (file === "index.html" && PUBLIC_BASE_URL) {
     body = Buffer.from(String(body).replace(/content="\/og-card\.svg"/g, `content="${PUBLIC_BASE_URL}/og-card.svg"`), "utf8");
   }
-  res.writeHead(200, { "Content-Type": types[path.extname(file)] || "application/octet-stream" });
+  res.writeHead(200, {
+    "Content-Type": types[path.extname(file)] || "application/octet-stream",
+    "Cache-Control": file === "index.html" || file.endsWith(".js") || file.endsWith(".css") ? "no-store" : "public, max-age=3600"
+  });
   res.end(body);
 }
 
