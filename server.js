@@ -316,8 +316,8 @@ async function scanMail({ lookbackDays }) {
       processed += 1;
       const key = `${message.mailbox}:${message.uid}`;
       const parsed = parseReceipt(message.uid, message.raw, message.mailbox);
-      state.seen.push(key);
       if (!parsed) continue;
+      state.seen.push(key);
       if (receiptKnown.has(parsed.identityKey) || receiptKnown.has(parsed.id)) continue;
       receiptKnown.add(parsed.identityKey);
       receiptKnown.add(parsed.id);
