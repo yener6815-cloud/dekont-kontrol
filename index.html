@@ -1,0 +1,136 @@
+﻿<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#060708">
+  <title>Dekont Kontrol</title>
+  <meta name="description" content="Canlı tahsilat ve dekont izleme paneli.">
+  <meta property="og:title" content="Dekont Kontrol">
+  <meta property="og:description" content="Canlı tahsilat ve dekont izleme paneli.">
+  <meta property="og:type" content="website">
+  <meta property="og:image" content="/og-card.svg">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Dekont Kontrol">
+  <meta name="twitter:description" content="Canlı tahsilat ve dekont izleme paneli.">
+  <meta name="twitter:image" content="/og-card.svg">
+  <link rel="icon" href="/logo.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <div class="ambient" aria-hidden="true"><span></span><span></span><span></span></div>
+
+  <main class="login-view" id="loginView">
+    <section class="login-card" aria-label="Giriş paneli">
+      <div class="access-mark" aria-hidden="true">
+        <img src="/logo.svg" alt="">
+      </div>
+      <p class="eyebrow">YETKİLİ ERİŞİM</p>
+      <h1>Dekont Kontrol</h1>
+      <p class="login-copy">Dekont kayıtlarına güvenli giriş.</p>
+      <form id="loginForm" class="login-form">
+        <label><span>Kullanıcı adı</span>
+          <input id="usernameInput" name="username" autocomplete="username" placeholder="" required>
+        </label>
+        <label><span>Şifre</span>
+          <div class="password-row">
+            <input id="passwordInput" name="password" type="password" autocomplete="current-password" required>
+            <button class="icon-button" id="togglePassword" type="button" aria-label="Şifreyi göster" title="Şifreyi göster">
+              <svg class="eye-open" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M2.5 12s3.4-6 9.5-6 9.5 6 9.5 6-3.4 6-9.5 6-9.5-6-9.5-6Z"/>
+                <circle cx="12" cy="12" r="3"/>
+              </svg>
+              <svg class="eye-closed" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M3 3l18 18"/>
+                <path d="M10.6 6.2A10.3 10.3 0 0 1 12 6c6.1 0 9.5 6 9.5 6a18 18 0 0 1-2.3 3.1"/>
+                <path d="M6.1 6.9C3.8 8.7 2.5 12 2.5 12s3.4 6 9.5 6c1.5 0 2.9-.4 4.1-1"/>
+              </svg>
+            </button>
+          </div>
+        </label>
+        <button class="primary-button" type="submit">Giriş yap</button>
+        <p class="form-message" id="loginMessage"></p>
+      </form>
+    </section>
+  </main>
+
+  <section class="welcome-overlay hidden" id="welcomeOverlay" aria-live="polite">
+    <div class="welcome-card">
+      <div class="welcome-logo">
+        <img src="/logo.svg" alt="">
+      </div>
+      <p class="eyebrow">DEKONT KONTROL</p>
+      <h2 id="splashName">Limon Admin</h2>
+      <p>Panel hazırlanıyor, canlı veriler arka planda eşitleniyor.</p>
+      <div class="welcome-loader" aria-hidden="true"></div>
+    </div>
+  </section>
+
+  <section class="manual-refresh-overlay hidden" id="manualRefreshOverlay" aria-live="polite">
+    <div class="refresh-splash">
+      <div class="refresh-orbit"></div>
+      <strong>Dekontlar yenileniyor</strong>
+      <span>Mail kutusu detaylı taranıyor</span>
+    </div>
+  </section>
+
+  <main class="dashboard hidden" id="dashboardView">
+    <header class="topbar">
+      <div class="welcome-box">
+        <img src="/logo.svg" alt="" class="mini-logo">
+        <div>
+          <span>Canlı Dekont Paneli</span>
+          <strong id="welcomeTitle">Limon Admin</strong>
+        </div>
+      </div>
+      <div class="clock-box">
+        <span>Turkiye Saati</span>
+        <strong id="clockText">--:--:--</strong>
+        <button class="logout-button" id="logoutButton" type="button" aria-label="Cikis yap" title="Cikis yap">Cikis</button>
+      </div>
+    </header>
+
+    <section class="hero-panel">
+      <div>
+        <p class="eyebrow">CANLI PANEL</p>
+        <h2>Dekontlar</h2>
+        <p id="sourceLabel">Veriler kalici database kaydiyla korunur.</p>
+      </div>
+      <div class="live-pill" id="scanStatus">Baglanti hazirlaniyor</div>
+    </section>
+
+    <section class="stats-grid">
+      <article><span>Bugun gelen</span><strong id="todayTotal">₺0,00</strong></article>
+      <article><span>Toplam dekont</span><strong id="totalCount">0</strong></article>
+      <article><span>Son tarama</span><strong id="lastScan">--:--</strong></article>
+    </section>
+
+    <section class="cashbox-card collapsed" id="cashboxCard">
+      <button class="cashbox-toggle" id="cashboxToggle" type="button">
+        <span>Kasa Takibi</span>
+        <strong id="cashboxStatus">Kapali</strong>
+      </button>
+      <div class="cashbox-body">
+        <p>Guncel kasayi girersen, yeni gelen dekontlar otomatik ustune eklenir. Istedigin zaman sifirlayabilirsin.</p>
+        <div class="cashbox-row">
+          <input id="cashboxInput" inputmode="decimal" placeholder="Guncel kasa tutari">
+          <button class="ghost-button" id="cashboxStart" type="button">Baslat</button>
+          <button class="ghost-button danger" id="cashboxReset" type="button">Sifirla</button>
+        </div>
+        <div class="cashbox-total" id="cashboxTotal">₺0,00</div>
+      </div>
+    </section>
+
+    <section class="tools-row">
+      <div class="search-wrap"><span>⌕</span><input id="searchInput" placeholder="Gonderen, tutar veya aciklama ara"></div>
+      <button class="refresh-button" id="refreshButton" type="button">Manuel yenile</button>
+    </section>
+
+    <div class="toast-wrap" id="toastWrap" aria-live="polite"></div>
+    <section class="receipt-list" id="receiptList"></section>
+    <nav class="pagination" id="pagination"></nav>
+  </main>
+
+  <script src="/app.js" defer></script>
+</body>
+</html>

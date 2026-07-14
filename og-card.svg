@@ -1,0 +1,17 @@
+﻿<svg width="1200" height="630" viewBox="0 0 1200 630" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="1200" height="630" fill="#050607"/>
+  <circle cx="970" cy="120" r="240" fill="#e5b64b" opacity="0.16"/>
+  <circle cx="120" cy="540" r="220" fill="#27e6a1" opacity="0.10"/>
+  <path d="M0 510C210 430 326 541 493 471C662 400 766 252 1200 312V630H0V510Z" fill="#111722" opacity="0.82"/>
+  <rect x="84" y="74" width="1032" height="482" rx="54" fill="rgba(255,255,255,0.045)" stroke="#e5b64b" stroke-opacity="0.5" stroke-width="3"/>
+  <g transform="translate(112 132) scale(.58)">
+    <rect width="512" height="512" rx="118" fill="#050607"/>
+    <rect x="54" y="54" width="404" height="404" rx="92" fill="#101317" stroke="#e5b64b" stroke-width="8"/>
+    <path d="M158 140h150l58 58v174c0 16-13 29-29 29H158c-16 0-29-13-29-29V169c0-16 13-29 29-29Z" fill="#101317" stroke="#f2c65a" stroke-width="10"/>
+    <path d="M177 250h158M177 296h128" stroke="#f7d88a" stroke-width="18" stroke-linecap="round"/>
+    <path d="m190 354 37 37 95-106" stroke="#27e6a1" stroke-width="24" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+  <text x="452" y="244" fill="#f7f8fb" font-family="Arial, Helvetica, sans-serif" font-size="74" font-weight="900" letter-spacing="0">Dekont Kontrol</text>
+  <text x="456" y="317" fill="#f2c65a" font-family="Arial, Helvetica, sans-serif" font-size="31" font-weight="800">Canli tahsilat ve dekont izleme paneli</text>
+  <text x="456" y="380" fill="#b8c1d1" font-family="Arial, Helvetica, sans-serif" font-size="26" font-weight="600">Mobil uyumlu, hizli tarama, manuel yenileme ve kasa takibi.</text>
+</svg>

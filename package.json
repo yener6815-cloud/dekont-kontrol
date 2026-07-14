@@ -1,0 +1,13 @@
+﻿{
+  "name": "dekont-kontrol",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Bagimsiz Dekont Kontrol paneli ve Gmail IMAP izleyici",
+  "scripts": {
+    "start": "node server.js",
+    "check": "node --check server.js && node --check app.js"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
