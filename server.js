@@ -283,6 +283,8 @@ async function triggerScan(mode = "interval", lookbackDays = SCAN_LOOKBACK_DAYS)
       lastScanAt: new Date().toISOString(),
       scannedCandidates: result.candidates,
       processedCandidates: result.processed,
+      mailAddress: maskEmail(MAIL_ADDRESS),
+      mailConfigured: Boolean(MAIL_ADDRESS && MAIL_PASSWORD),
       newCount: result.newReceipts.length
     };
     scheduleSave();
@@ -442,8 +444,7 @@ function parseReceipt(uid, raw, mailbox) {
   if (!isKuveytReceipt(searchable)) return null;
   const amount = findAmount(body);
   if (!amount) return null;
-  const sender = findField(body, [/g[oö]nderen(?:\s+ad[ıi]\s+soyad[ıi])?/i, /g[oö]nderen\s+ad\s+soyad/i, /ad[ıi]\s+soyad[ıi]/i, /g[oö]nderen/i]) || inferSender(body) || "Belirtilmedi";
-  if (!isValidSender(sender)) return null;
+  const sender = normalizeSenderName(findField(body, [/g[oö]nderen(?:\s+ad[ıi]\s+soyad[ıi])?/i, /g[oö]nderen\s+ad\s+soyad/i, /ad[ıi]\s+soyad[ıi]/i, /g[oö]nderen/i]) || inferSender(body));
   const senderBank = findField(body, [/g[oö]nderen\s+banka(?:s[ıi])?/i, /banka(?:s[ıi])?/i]) || "Banka bilgisi yok";
   const desc = findField(body, [/a[çc][ıi]klama(?:s[ıi])?/i, /i[şs]lem\s+a[çc][ıi]klama(?:s[ıi])?/i]) || inferDescription(body) || "Aciklama yok";
   const transactionTime = findField(body, [/i[şs]lem\s+zaman[ıi]/i, /tarih/i, /saat/i]) || inferDate(body) || parseDate(headers.date) || "";
@@ -624,7 +625,12 @@ function sanitizeReceipts(receipts) {
 }
 
 function isDisplayableReceipt(receipt) {
-  return Boolean(receipt && Number(receipt.amount || 0) > 0 && isValidSender(receipt.sender));
+  return Boolean(receipt && Number(receipt.amount || 0) > 0 && isKuveytReceipt(normalizeSearch(`${receipt.subject || ""}\n${receipt.desc || ""}\n${receipt.sender || ""}`)));
+}
+
+function normalizeSenderName(sender) {
+  const value = sanitizeValue(sender);
+  return isValidSender(value) ? value : "Gönderen okunamadı";
 }
 
 function isValidSender(sender) {
@@ -633,6 +639,13 @@ function isValidSender(sender) {
   if (!value || value.length < 3) return false;
   if (["belirtilmedi", "bilinmiyor", "gonderen yok", "sender yok"].includes(normalized)) return false;
   return /[a-zA-ZÇĞİÖŞÜçğıöşü]/.test(value);
+}
+
+function maskEmail(value) {
+  const text = String(value || "");
+  const [name, domain] = text.split("@");
+  if (!name || !domain) return "";
+  return `${name.slice(0, 3)}***@${domain}`;
 }
 
 function sortReceipts(receipts) {
