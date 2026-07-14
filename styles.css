@@ -116,6 +116,39 @@ button:active { transform: scale(.97); }
 .stats-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin: 16px 0; }
 .stats-grid article { border-radius: 18px; padding: 22px; }
 .stats-grid strong { display: block; font-size: 34px; margin-top: 16px; }
+.total-card { align-content: start; }
+.total-adjust { display: grid; gap: 8px; margin-top: 12px; }
+.total-adjust input {
+  width: 100%;
+  min-height: 40px;
+  padding: 0 12px;
+  color: var(--text);
+  border: 1px solid rgba(229,182,75,.24);
+  border-radius: 12px;
+  background: rgba(0,0,0,.38);
+}
+.total-adjust-actions { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+.mini-action {
+  min-height: 36px;
+  padding: 0 8px;
+  color: var(--gold-soft);
+  font-size: 12px;
+  font-weight: 950;
+  border: 1px solid rgba(229,182,75,.22);
+  border-radius: 12px;
+  background: rgba(255,255,255,.08);
+}
+.mini-action.primary {
+  color: #050607;
+  background: linear-gradient(135deg, var(--gold), #fff0b3);
+}
+.total-adjust small {
+  min-height: 15px;
+  color: rgba(245, 239, 220, .72);
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1.35;
+}
 .total-warning-note {
   margin: -4px 0 16px;
   padding: 12px 14px;

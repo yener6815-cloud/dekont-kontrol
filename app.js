@@ -10,6 +10,11 @@ const clockText = document.getElementById("clockText");
 const logoutButton = document.getElementById("logoutButton");
 const scanStatus = document.getElementById("scanStatus");
 const todayTotal = document.getElementById("todayTotal");
+const totalAdjustInput = document.getElementById("totalAdjustInput");
+const totalAddButton = document.getElementById("totalAddButton");
+const totalSubtractButton = document.getElementById("totalSubtractButton");
+const totalSetButton = document.getElementById("totalSetButton");
+const totalAdjustMessage = document.getElementById("totalAdjustMessage");
 const totalCount = document.getElementById("totalCount");
 const lastScan = document.getElementById("lastScan");
 const searchInput = document.getElementById("searchInput");
@@ -41,12 +46,10 @@ const state = {
   eventSource: null,
   liveReady: false,
   cashbox: loadCashbox(),
+  totalAdjustment: Number(localStorage.getItem("dkTotalAdjustment") || 0),
   lastReceiptRenderKey: "",
   lastStatsRenderKey: ""
 };
-
-const LIMON_CASHBOX_BASELINE_VERSION = "limon-28280-20260715";
-const LIMON_CASHBOX_BASELINE_AMOUNT = 28280;
 
 function money(value) {
   return new Intl.NumberFormat("tr-TR", { style: "currency", currency: "TRY", minimumFractionDigits: 2 }).format(Number(value || 0));
@@ -176,7 +179,7 @@ function receiptCollectionKey(receipts) {
 }
 
 function renderAll({ receiptsChanged = true } = {}) {
-  todayTotal.textContent = money(state.stats.todayTotal || 0);
+  todayTotal.textContent = money(Number(state.stats.todayTotal || 0) + Number(state.totalAdjustment || 0));
   totalCount.textContent = String(state.stats.totalCount || state.receipts.length || 0);
   renderStatusOnly();
   if (receiptsChanged || state.lastReceiptRenderKey !== visibleRenderKey()) {
@@ -267,18 +270,10 @@ function loadCashbox() {
 }
 function saveCashbox() { localStorage.setItem("dkCashbox", JSON.stringify(state.cashbox)); }
 function ensureLimonCashboxBaseline() {
-  if (localStorage.getItem("dkCashboxBaseline") === LIMON_CASHBOX_BASELINE_VERSION) return;
-  state.cashbox = {
-    active: true,
-    total: LIMON_CASHBOX_BASELINE_AMOUNT,
-    applied: state.receipts.map((item) => item.id).filter(Boolean),
-    baseline: LIMON_CASHBOX_BASELINE_VERSION
-  };
-  localStorage.setItem("dkCashboxBaseline", LIMON_CASHBOX_BASELINE_VERSION);
-  saveCashbox();
+  return;
 }
 function syncCashbox(newReceipts) {
-  if (!state.cashbox.active) return;
+  return;
   const applied = new Set(state.cashbox.applied || []);
   let total = Number(state.cashbox.total || 0);
   for (const receipt of newReceipts) {
@@ -291,9 +286,37 @@ function syncCashbox(newReceipts) {
   saveCashbox();
 }
 function renderCashbox() {
+  if (!cashboxStatus || !cashboxTotal) return;
   cashboxStatus.textContent = state.cashbox.active ? "Aktif" : "Kapali";
   cashboxStatus.classList.toggle("active", Boolean(state.cashbox.active));
   cashboxTotal.textContent = money(state.cashbox.total || 0);
+}
+
+function saveTotalAdjustment() {
+  localStorage.setItem("dkTotalAdjustment", String(Number(state.totalAdjustment || 0)));
+}
+
+function applyTotalAdjustment(action) {
+  const amount = parseMoney(totalAdjustInput?.value || "");
+  if (!amount) {
+    totalAdjustMessage.textContent = "Gecerli bir tutar yaz.";
+    totalAdjustInput?.focus();
+    return;
+  }
+
+  const receiptTotal = Number(state.stats.todayTotal || 0);
+  if (action === "add") {
+    state.totalAdjustment = Number(state.totalAdjustment || 0) + amount;
+  } else if (action === "subtract") {
+    state.totalAdjustment = Number(state.totalAdjustment || 0) - amount;
+  } else {
+    state.totalAdjustment = amount - receiptTotal;
+  }
+
+  saveTotalAdjustment();
+  totalAdjustInput.value = "";
+  totalAdjustMessage.textContent = `Toplam ${money(receiptTotal + Number(state.totalAdjustment || 0))} olarak guncellendi.`;
+  renderAll({ receiptsChanged: false });
 }
 function parseMoney(value) {
   const text = String(value || "").replace(/[^0-9.,]/g, "");
@@ -381,6 +404,10 @@ cashboxManualAdd.addEventListener("click", () => {
   cashboxManualMessage.textContent = `${money(amount)} manuel olarak kasaya eklendi.`;
 });
 cashboxManualInput.addEventListener("input", () => { cashboxManualMessage.textContent = ""; });
+totalAddButton.addEventListener("click", () => applyTotalAdjustment("add"));
+totalSubtractButton.addEventListener("click", () => applyTotalAdjustment("subtract"));
+totalSetButton.addEventListener("click", () => applyTotalAdjustment("set"));
+totalAdjustInput.addEventListener("input", () => { totalAdjustMessage.textContent = ""; });
 
 setInterval(() => {
   clockText.textContent = new Intl.DateTimeFormat("tr-TR", { hour: "2-digit", minute: "2-digit", second: "2-digit", timeZone: "Europe/Istanbul" }).format(new Date());
