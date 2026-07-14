@@ -18,11 +18,15 @@ const MAIL_PASSWORD = normalizeSecret(process.env.DEKONT_APP_PASSWORD || process
 const SCAN_INTERVAL_MS = clamp(process.env.SCAN_INTERVAL_MS, 1000, 1000, 10000);
 const SCAN_LOOKBACK_DAYS = clamp(process.env.SCAN_LOOKBACK_DAYS, 10, 1, 90);
 const MANUAL_SCAN_LOOKBACK_DAYS = clamp(process.env.MANUAL_SCAN_LOOKBACK_DAYS, 45, 1, 365);
+const HOT_SCAN_LOOKBACK_HOURS = clamp(process.env.HOT_SCAN_LOOKBACK_HOURS, 6, 1, 24);
+const LIVE_FETCH_PER_SCAN = clamp(process.env.LIVE_FETCH_PER_SCAN, 12, 4, 80);
 const MAX_STORED_RECEIPTS = clamp(process.env.MAX_STORED_RECEIPTS, 3000, 100, 25000);
 const MAX_FETCH_PER_SCAN = clamp(process.env.MAX_FETCH_PER_SCAN, 120, 20, 1000);
 const SESSION_TTL_MS = 12 * 60 * 60 * 1000;
 const RECEIPT_MAILBOXES = unique((process.env.RECEIPT_MAILBOXES || "[Gmail]/All Mail,[Gmail]/Tüm Postalar,[Google Mail]/All Mail,[Gmail]/Updates,[Gmail]/Guncellemeler,[Gmail]/Categories/Promotions,[Gmail]/Categories/Social,[Gmail]/Kategoriler/Tanıtımlar,[Gmail]/Kategoriler/Sosyal,[Gmail]/Promotions,[Gmail]/Social,[Gmail]/Spam,[Gmail]/Gereksiz,[Gmail]/Junk,INBOX").split(",").map((x) => x.trim()).filter(Boolean));
+const LIVE_RECEIPT_MAILBOXES = unique((process.env.LIVE_RECEIPT_MAILBOXES || "INBOX,[Gmail]/Updates,[Gmail]/Guncellemeler,[Gmail]/All Mail,[Gmail]/Tüm Postalar,[Google Mail]/All Mail").split(",").map((x) => x.trim()).filter(Boolean));
 const SEARCH_TERMS = ["Kuveyt", "Kuveyt Türk", "Kuveyt Turk", "Hesabınıza", "Hesabiniza", "FAST ile para geldi", "EFT ile para geldi", "Havale ile para geldi", "Para Geldi", "Para Girişi", "Para Girisi", "Bilgilendirme"];
+const LIVE_SEARCH_TERMS = unique((process.env.LIVE_SEARCH_TERMS || "Kuveyt,Kuveyt Turk,Para Geldi,FAST").split(",").map((x) => x.trim()).filter(Boolean));
 const RECEIPT_FIELD_LABELS = [
   "Gonderen Adi Soyadi",
   "Gönderen Adı Soyadı",
@@ -274,6 +278,7 @@ function serveStatic(req, res, url) {
     "/app.js": "app.js",
     "/styles.css": "styles.css",
     "/logo.svg": "logo.svg",
+    "/limon.svg": "limon.svg",
     "/og-card.svg": "og-card.svg"
   };
   const file = fileMap[url.pathname];
@@ -313,8 +318,10 @@ function broadcast(type, payload) {
 }
 
 function startScanLoop() {
+  let firstRun = true;
   const run = async () => {
-    await triggerScan("interval", SCAN_LOOKBACK_DAYS);
+    await triggerScan(firstRun ? "startup" : "interval", firstRun ? SCAN_LOOKBACK_DAYS : null);
+    firstRun = false;
     scanTimer = setTimeout(run, SCAN_INTERVAL_MS);
   };
   scanTimer = setTimeout(run, 300);
@@ -354,15 +361,23 @@ async function scanMail({ mode = "interval", lookbackDays }) {
     throw new Error("Mail bilgileri eksik. DEKONT_MAIL ve DEKONT_APP_PASSWORD gerekli.");
   }
   const imap = new ImapClient(MAIL_ADDRESS, MAIL_PASSWORD);
-  const since = new Date(Date.now() - lookbackDays * 24 * 60 * 60 * 1000);
+  const hasHistory = state.receipts.length > 0;
+  const fullScan = mode === "manual" || (mode === "startup" && !hasHistory);
+  const since = fullScan
+    ? new Date(Date.now() - (lookbackDays || SCAN_LOOKBACK_DAYS) * 24 * 60 * 60 * 1000)
+    : new Date(Date.now() - HOT_SCAN_LOOKBACK_HOURS * 60 * 60 * 1000);
+  const searchOptions = fullScan
+    ? {}
+    : { mailboxes: LIVE_RECEIPT_MAILBOXES, terms: LIVE_SEARCH_TERMS, subjectOnly: true };
+  const fetchLimit = fullScan ? MAX_FETCH_PER_SCAN : LIVE_FETCH_PER_SCAN;
   await imap.connect();
   try {
     await imap.login();
-    const targets = await imap.searchReceiptCandidatesSince(since);
+    const targets = await imap.searchReceiptCandidatesSince(since, searchOptions);
     const known = new Set(state.seen);
     const receiptKnown = new Set(state.receipts.map((r) => r.identityKey || r.id));
     const shouldRecheckRecent = mode === "manual";
-    const freshTargets = (shouldRecheckRecent ? targets : targets.filter((t) => !known.has(`${t.mailbox}:${t.uid}`))).slice(-MAX_FETCH_PER_SCAN);
+    const freshTargets = (shouldRecheckRecent ? targets : targets.filter((t) => !known.has(`${t.mailbox}:${t.uid}`))).slice(-fetchLimit);
     const messages = await imap.fetchMessages(freshTargets);
     const newReceipts = [];
     let processed = 0;
@@ -419,16 +434,21 @@ class ImapClient {
   async selectMailbox(mailbox) { await this.command(`SELECT ${quoteImap(mailbox)}`, 20000); this.selectedMailbox = mailbox; }
   async searchSince(date) { return extractSearchUids(await this.command(`UID SEARCH SINCE ${formatImapDate(date)} SUBJECT "Kuveyt"`, 25000)); }
   async searchTextSince(date, phrase) { return extractSearchUids(await this.command(`UID SEARCH SINCE ${formatImapDate(date)} TEXT ${quoteImap(phrase)}`, 25000)); }
-  async searchReceiptCandidatesSince(date) {
+  async searchReceiptCandidatesSince(date, options = {}) {
+    const configuredMailboxes = Array.isArray(options.mailboxes) && options.mailboxes.length ? options.mailboxes : RECEIPT_MAILBOXES;
+    const configuredTerms = Array.isArray(options.terms) && options.terms.length ? options.terms : SEARCH_TERMS;
     const available = [];
-    for (const mailbox of RECEIPT_MAILBOXES) {
+    for (const mailbox of configuredMailboxes) {
       try { await this.selectMailbox(mailbox); available.push(mailbox); } catch (_) {}
     }
     if (!available.length) throw new Error("Mail kutusu secilemedi");
     const targets = new Map();
     for (const mailbox of available) {
       await this.selectMailbox(mailbox);
-      const runners = [() => this.searchSince(date), ...SEARCH_TERMS.map((term) => () => this.searchTextSince(date, term))];
+      const runners = [
+        () => this.searchSince(date),
+        ...(options.subjectOnly ? [] : configuredTerms.map((term) => () => this.searchTextSince(date, term)))
+      ];
       for (const runner of runners) {
         try {
           const uids = await runner();
