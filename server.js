@@ -296,7 +296,7 @@ async function triggerScan(mode = "interval", lookbackDays = SCAN_LOOKBACK_DAYS)
   }
 }
 
-async function scanMail({ lookbackDays }) {
+async function scanMail({ mode = "interval", lookbackDays }) {
   if (!MAIL_ADDRESS || !MAIL_PASSWORD) {
     throw new Error("Mail bilgileri eksik. DEKONT_MAIL ve DEKONT_APP_PASSWORD gerekli.");
   }
@@ -308,7 +308,8 @@ async function scanMail({ lookbackDays }) {
     const targets = await imap.searchReceiptCandidatesSince(since);
     const known = new Set(state.seen);
     const receiptKnown = new Set(state.receipts.map((r) => r.identityKey || r.id));
-    const freshTargets = targets.filter((t) => !known.has(`${t.mailbox}:${t.uid}`)).slice(-MAX_FETCH_PER_SCAN);
+    const shouldRecheckRecent = mode === "manual";
+    const freshTargets = (shouldRecheckRecent ? targets : targets.filter((t) => !known.has(`${t.mailbox}:${t.uid}`))).slice(-MAX_FETCH_PER_SCAN);
     const messages = await imap.fetchMessages(freshTargets);
     const newReceipts = [];
     let processed = 0;
