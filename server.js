@@ -10,9 +10,7 @@ const LEGACY_DATA_FILE = path.join(DATA_DIR, "receipts.json");
 const DATA_FILE = process.env.DATABASE_FILE || path.join(DATA_DIR, "database.json");
 const PORT = Number(process.env.PORT || 10000);
 const PUBLIC_BASE_URL = String(process.env.PUBLIC_BASE_URL || "").replace(/\/$/, "");
-const PANEL_USERNAME = process.env.PANEL_USERNAME || "limonadmin";
-const PANEL_PASSWORD = process.env.PANEL_PASSWORD || "admin123";
-const PANEL_NAME = process.env.PANEL_NAME || "Limon Admin";
+const PANEL_USERS = buildPanelUsers();
 const MAIL_ADDRESS = process.env.DEKONT_MAIL || process.env.LIMON_MAIL || "";
 const MAIL_PASSWORD = normalizeSecret(process.env.DEKONT_APP_PASSWORD || process.env.LIMON_APP_PASSWORD || "");
 const SCAN_INTERVAL_MS = clamp(process.env.SCAN_INTERVAL_MS, 1000, 1000, 10000);
@@ -121,6 +119,42 @@ function unique(list) {
   return [...new Set(list)];
 }
 
+function buildPanelUsers() {
+  const users = [
+    {
+      username: process.env.PANEL_USERNAME || "limonadmin",
+      password: process.env.PANEL_PASSWORD || "admin123",
+      name: process.env.PANEL_NAME || "Limon Admin",
+      theme: "limon",
+      logo: "/limon.svg",
+      sourceLabel: "Veriler kalici database kaydiyla korunur."
+    },
+    {
+      username: "musti",
+      password: "mustigiriş123",
+      name: "Musti Admin",
+      theme: "musti",
+      logo: "/musti.svg",
+      sourceLabel: "Musti hesabı için mail ve IBAN kaynağı hazır bekliyor."
+    }
+  ];
+  return users.map((user) => ({
+    ...user,
+    loginKey: normalizeLoginName(user.username)
+  }));
+}
+
+function publicUser(user) {
+  if (!user) return null;
+  return {
+    name: user.name,
+    username: user.username,
+    theme: user.theme || "limon",
+    logo: user.logo || "/logo.svg",
+    sourceLabel: user.sourceLabel || "Veriler kalici database kaydiyla korunur."
+  };
+}
+
 function normalizeSecret(value) {
   return String(value || "").replace(/\s+/g, "");
 }
@@ -212,14 +246,14 @@ const server = http.createServer(async (req, res) => {
     if (req.method === "POST" && url.pathname === "/api/login") {
       const body = await readJson(req);
       const enteredUsername = normalizeLoginName(body.username);
-      const expectedUsername = normalizeLoginName(PANEL_USERNAME);
-      if (enteredUsername !== expectedUsername || String(body.password || "") !== PANEL_PASSWORD) {
+      const panelUser = PANEL_USERS.find((user) => user.loginKey === enteredUsername);
+      if (!panelUser || String(body.password || "") !== panelUser.password) {
         return sendJson(res, 401, { error: "Kullanici adi veya sifre hatali" });
       }
       const token = crypto.randomBytes(32).toString("hex");
-      sessions.set(token, { token, name: PANEL_NAME, username: PANEL_USERNAME, expiresAt: Date.now() + SESSION_TTL_MS });
+      sessions.set(token, { token, ...publicUser(panelUser), expiresAt: Date.now() + SESSION_TTL_MS });
       res.setHeader("Set-Cookie", `dk_session=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=43200`);
-      return sendJson(res, 200, { token, user: { name: PANEL_NAME, username: PANEL_USERNAME } });
+      return sendJson(res, 200, { token, user: publicUser(panelUser) });
     }
 
     if (req.method === "POST" && url.pathname === "/api/logout") {
@@ -231,7 +265,7 @@ const server = http.createServer(async (req, res) => {
 
     if (url.pathname === "/api/me") {
       const user = authUser(req);
-      return sendJson(res, 200, { authenticated: Boolean(user), user: user ? { name: user.name, username: user.username } : null });
+      return sendJson(res, 200, { authenticated: Boolean(user), user: publicUser(user) });
     }
 
     if (url.pathname === "/api/events") {
@@ -279,6 +313,7 @@ function serveStatic(req, res, url) {
     "/styles.css": "styles.css",
     "/logo.svg": "logo.svg",
     "/limon.svg": "limon.svg",
+    "/musti.svg": "musti.svg",
     "/og-card.svg": "og-card.svg"
   };
   const file = fileMap[url.pathname];

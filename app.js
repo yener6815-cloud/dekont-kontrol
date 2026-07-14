@@ -34,6 +34,9 @@ const cashboxManualMessage = document.getElementById("cashboxManualMessage");
 const cashboxTotal = document.getElementById("cashboxTotal");
 const welcomeOverlay = document.getElementById("welcomeOverlay");
 const splashName = document.getElementById("splashName");
+const splashLogo = document.getElementById("splashLogo");
+const panelLogo = document.getElementById("panelLogo");
+const sourceLabel = document.getElementById("sourceLabel");
 const manualRefreshOverlay = document.getElementById("manualRefreshOverlay");
 
 const state = {
@@ -83,12 +86,17 @@ async function checkSession() {
 
 function enterApp(user) {
   state.user = user;
-  document.body.dataset.panelTheme = "limon";
+  const theme = user.theme || "limon";
+  const logo = user.logo || "/limon.svg";
+  document.body.dataset.panelTheme = theme;
   const displayName = user.name || user.username || "Limon Admin";
   welcomeTitle.textContent = `${displayName}`;
   if (splashName) {
     splashName.textContent = `Hoşgeldin, ${displayName}`;
   }
+  if (splashLogo) splashLogo.src = logo;
+  if (panelLogo) panelLogo.src = logo;
+  if (sourceLabel) sourceLabel.textContent = user.sourceLabel || "Veriler kalici database kaydiyla korunur.";
   showWelcomeSplash();
   loginView.classList.add("login-fade-out");
   setTimeout(() => {
