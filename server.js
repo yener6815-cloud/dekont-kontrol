@@ -155,7 +155,9 @@ const server = http.createServer(async (req, res) => {
     const url = new URL(req.url, `http://${req.headers.host}`);
     if (req.method === "POST" && url.pathname === "/api/login") {
       const body = await readJson(req);
-      if (String(body.username || "").trim() !== PANEL_USERNAME || String(body.password || "") !== PANEL_PASSWORD) {
+      const enteredUsername = normalizeLoginName(body.username);
+      const expectedUsername = normalizeLoginName(PANEL_USERNAME);
+      if (enteredUsername !== expectedUsername || String(body.password || "") !== PANEL_PASSWORD) {
         return sendJson(res, 401, { error: "Kullanici adi veya sifre hatali" });
       }
       const token = crypto.randomBytes(32).toString("hex");
@@ -208,6 +210,10 @@ const server = http.createServer(async (req, res) => {
     sendJson(res, 500, { error: sanitizeError(error) });
   }
 });
+
+function normalizeLoginName(value) {
+  return String(value || "").trim().toLocaleLowerCase("tr-TR");
+}
 
 function serveStatic(req, res, url) {
   const fileMap = {
