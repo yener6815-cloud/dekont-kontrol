@@ -52,7 +52,7 @@ function loadState() {
     const raw = fs.readFileSync(sourceFile, "utf8");
     const parsed = JSON.parse(raw);
     return {
-      receipts: Array.isArray(parsed.receipts) ? sortReceipts(parsed.receipts).slice(0, MAX_STORED_RECEIPTS) : [],
+      receipts: Array.isArray(parsed.receipts) ? sanitizeReceipts(parsed.receipts).slice(0, MAX_STORED_RECEIPTS) : [],
       seen: Array.isArray(parsed.seen) ? parsed.seen : [],
       health: parsed.health && typeof parsed.health === "object" ? parsed.health : {}
     };
@@ -70,10 +70,11 @@ function scheduleSave() {
 
 function saveStateNow() {
   fs.mkdirSync(path.dirname(DATA_FILE), { recursive: true });
+  state.receipts = sanitizeReceipts(state.receipts).slice(0, MAX_STORED_RECEIPTS);
   fs.writeFileSync(DATA_FILE, JSON.stringify({
     version: 1,
     savedAt: new Date().toISOString(),
-    receipts: sortReceipts(state.receipts).slice(0, MAX_STORED_RECEIPTS),
+    receipts: state.receipts,
     seen: unique(state.seen).slice(-MAX_STORED_RECEIPTS * 2),
     health: state.health || {}
   }, null, 2), "utf8");
@@ -211,7 +212,7 @@ function serveStatic(req, res, url) {
 }
 
 function buildPayload() {
-  const receipts = sortReceipts(state.receipts);
+  const receipts = sanitizeReceipts(state.receipts);
   const today = new Date().toLocaleDateString("tr-TR", { timeZone: "Europe/Istanbul" });
   const todayReceipts = receipts.filter((r) => new Date(r.receivedAt || r.transactionTime || 0).toLocaleDateString("tr-TR", { timeZone: "Europe/Istanbul" }) === today);
   return {
@@ -412,6 +413,7 @@ function parseReceipt(uid, raw, mailbox) {
   const amount = findAmount(body);
   if (!amount) return null;
   const sender = findField(body, [/g[oö]nderen(?:\s+ad[ıi]\s+soyad[ıi])?/i, /ad[ıi]\s+soyad[ıi]/i, /g[oö]nderen/i]) || inferSender(body) || "Belirtilmedi";
+  if (!isValidSender(sender)) return null;
   const senderBank = findField(body, [/g[oö]nderen\s+banka(?:s[ıi])?/i, /banka(?:s[ıi])?/i]) || "Banka bilgisi yok";
   const desc = findField(body, [/a[çc][ıi]klama(?:s[ıi])?/i, /i[şs]lem\s+a[çc][ıi]klama(?:s[ıi])?/i]) || inferDescription(body) || "Aciklama yok";
   const transactionTime = findField(body, [/i[şs]lem\s+zaman[ıi]/i, /tarih/i, /saat/i]) || inferDate(body) || parseDate(headers.date) || "";
@@ -548,6 +550,22 @@ function shortTime(value) {
   const date = new Date(value || "");
   if (Number.isNaN(date.getTime())) return "--:--";
   return new Intl.DateTimeFormat("tr-TR", { hour: "2-digit", minute: "2-digit", timeZone: "Europe/Istanbul" }).format(date);
+}
+
+function sanitizeReceipts(receipts) {
+  return sortReceipts((receipts || []).filter(isDisplayableReceipt));
+}
+
+function isDisplayableReceipt(receipt) {
+  return Boolean(receipt && Number(receipt.amount || 0) > 0 && isValidSender(receipt.sender));
+}
+
+function isValidSender(sender) {
+  const value = sanitizeValue(sender);
+  const normalized = normalizeSearch(value);
+  if (!value || value.length < 3) return false;
+  if (["belirtilmedi", "bilinmiyor", "gonderen yok", "sender yok"].includes(normalized)) return false;
+  return /[a-zA-ZÇĞİÖŞÜçğıöşü]/.test(value);
 }
 
 function sortReceipts(receipts) {
