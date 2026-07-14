@@ -294,12 +294,10 @@ function serveStatic(req, res, url) {
 
 function buildPayload() {
   const receipts = sanitizeReceipts(state.receipts);
-  const today = new Date().toLocaleDateString("tr-TR", { timeZone: "Europe/Istanbul" });
-  const todayReceipts = receipts.filter((r) => new Date(r.receivedAt || r.transactionTime || 0).toLocaleDateString("tr-TR", { timeZone: "Europe/Istanbul" }) === today);
   return {
     receipts,
     stats: {
-      todayTotal: todayReceipts.reduce((sum, r) => sum + Number(r.amount || 0), 0),
+      todayTotal: receipts.reduce((sum, r) => sum + Number(r.amount || 0), 0),
       totalCount: receipts.length,
       lastScanAt: state.health.lastScanAt || ""
     },

@@ -116,6 +116,17 @@ button:active { transform: scale(.97); }
 .stats-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin: 16px 0; }
 .stats-grid article { border-radius: 18px; padding: 22px; }
 .stats-grid strong { display: block; font-size: 34px; margin-top: 16px; }
+.total-warning-note {
+  margin: -4px 0 16px;
+  padding: 12px 14px;
+  border: 1px solid rgba(229,182,75,.24);
+  border-radius: 16px;
+  color: rgba(245, 239, 220, .82);
+  background: linear-gradient(135deg, rgba(229,182,75,.12), rgba(5,6,8,.72));
+  font-size: 13px;
+  font-weight: 850;
+  line-height: 1.45;
+}
 .cashbox-card { border-radius: 18px; margin-bottom: 16px; overflow: hidden; }
 .cashbox-toggle { width: 100%; background: transparent; color: var(--text); border: 0; padding: 16px 18px; display: flex; justify-content: space-between; font: inherit; font-weight: 950; cursor: pointer; }
 .cashbox-toggle strong.active { color: var(--mint); text-shadow: 0 0 18px rgba(39,230,161,.4); }
