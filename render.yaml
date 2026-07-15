@@ -6,6 +6,10 @@
     buildCommand: npm install
     startCommand: npm start
     autoDeploy: true
+    disk:
+      name: dekont-data
+      mountPath: /var/data
+      sizeGB: 1
     envVars:
       - key: NODE_VERSION
         value: 24.14.0
@@ -27,5 +31,11 @@
         sync: false
       - key: SCAN_INTERVAL_MS
         value: 1000
+      - key: SCAN_LOOKBACK_DAYS
+        value: 30
+      - key: MANUAL_SCAN_LOOKBACK_DAYS
+        value: 120
+      - key: MAX_FETCH_PER_SCAN
+        value: 1000
       - key: DATABASE_FILE
-        value: data/database.json
+        value: /var/data/database.json

@@ -7,16 +7,17 @@ const crypto = require("crypto");
 const ROOT = __dirname;
 const DATA_DIR = path.join(ROOT, "data");
 const LEGACY_DATA_FILE = path.join(DATA_DIR, "receipts.json");
-const DATA_FILE = process.env.DATABASE_FILE || path.join(DATA_DIR, "database.json");
+const PERSISTENT_DATA_DIR = process.env.RENDER ? "/var/data" : DATA_DIR;
+const DATA_FILE = process.env.DATABASE_FILE || path.join(PERSISTENT_DATA_DIR, "database.json");
 const PORT = Number(process.env.PORT || 10000);
 const PUBLIC_BASE_URL = String(process.env.PUBLIC_BASE_URL || "").replace(/\/$/, "");
 const SCAN_INTERVAL_MS = clamp(process.env.SCAN_INTERVAL_MS, 1000, 1000, 10000);
-const SCAN_LOOKBACK_DAYS = clamp(process.env.SCAN_LOOKBACK_DAYS, 10, 1, 90);
-const MANUAL_SCAN_LOOKBACK_DAYS = clamp(process.env.MANUAL_SCAN_LOOKBACK_DAYS, 45, 1, 365);
+const SCAN_LOOKBACK_DAYS = clamp(process.env.SCAN_LOOKBACK_DAYS, 30, 1, 180);
+const MANUAL_SCAN_LOOKBACK_DAYS = clamp(process.env.MANUAL_SCAN_LOOKBACK_DAYS, 120, 1, 365);
 const HOT_SCAN_LOOKBACK_HOURS = clamp(process.env.HOT_SCAN_LOOKBACK_HOURS, 6, 1, 24);
 const LIVE_FETCH_PER_SCAN = clamp(process.env.LIVE_FETCH_PER_SCAN, 12, 4, 80);
 const MAX_STORED_RECEIPTS = clamp(process.env.MAX_STORED_RECEIPTS, 3000, 100, 25000);
-const MAX_FETCH_PER_SCAN = clamp(process.env.MAX_FETCH_PER_SCAN, 120, 20, 1000);
+const MAX_FETCH_PER_SCAN = clamp(process.env.MAX_FETCH_PER_SCAN, 1000, 20, 2000);
 const SESSION_TTL_MS = 12 * 60 * 60 * 1000;
 const RECEIPT_MAILBOXES = unique((process.env.RECEIPT_MAILBOXES || "[Gmail]/All Mail,[Gmail]/Tüm Postalar,[Google Mail]/All Mail,[Gmail]/Updates,[Gmail]/Guncellemeler,[Gmail]/Categories/Promotions,[Gmail]/Categories/Social,[Gmail]/Kategoriler/Tanıtımlar,[Gmail]/Kategoriler/Sosyal,[Gmail]/Promotions,[Gmail]/Social,[Gmail]/Spam,[Gmail]/Gereksiz,[Gmail]/Junk,INBOX").split(",").map((x) => x.trim()).filter(Boolean));
 const LIVE_RECEIPT_MAILBOXES = unique((process.env.LIVE_RECEIPT_MAILBOXES || "INBOX,[Gmail]/Updates,[Gmail]/Guncellemeler,[Gmail]/All Mail,[Gmail]/Tüm Postalar,[Google Mail]/All Mail").split(",").map((x) => x.trim()).filter(Boolean));
@@ -217,7 +218,7 @@ function normalizeSecret(value) {
 
 function loadState() {
   try {
-    const sourceFile = fs.existsSync(DATA_FILE) ? DATA_FILE : LEGACY_DATA_FILE;
+    const sourceFile = findReadableStateFile();
     const raw = fs.readFileSync(sourceFile, "utf8");
     const parsed = JSON.parse(raw);
     return {
@@ -229,6 +230,11 @@ function loadState() {
   } catch (error) {
     return { receipts: [], seen: [], health: {}, accountSettings: {} };
   }
+}
+
+function findReadableStateFile() {
+  const candidates = unique([DATA_FILE, path.join(DATA_DIR, "database.json"), LEGACY_DATA_FILE]);
+  return candidates.find((file) => file && fs.existsSync(file)) || DATA_FILE;
 }
 
 function normalizeLoadedState(parsed) {
