@@ -23,6 +23,15 @@ const LIVE_RECEIPT_MAILBOXES = unique((process.env.LIVE_RECEIPT_MAILBOXES || "IN
 const SEARCH_TERMS = ["Kuveyt", "Kuveyt Türk", "Kuveyt Turk", "Hesabınıza", "Hesabiniza", "FAST ile para geldi", "EFT ile para geldi", "Havale ile para geldi", "Para Geldi", "Para Girişi", "Para Girisi", "Bilgilendirme"];
 const LIVE_SEARCH_TERMS = unique((process.env.LIVE_SEARCH_TERMS || "Kuveyt,Kuveyt Turk,Para Geldi,FAST").split(",").map((x) => x.trim()).filter(Boolean));
 const MUSTI_COMPANY_SUBJECT = "VENÜS DİJİTAL REKLAM MEDYA VE DANIŞMANLIK TİCARET LİMİTED ŞİRKETİ";
+const ACCOUNT_SECTIONS = {
+  limon: [
+    { key: "limon", label: "LİMON", slot: "1" },
+    { key: "limon-toplam", label: "LİMON TOPLAM", slot: "3" }
+  ],
+  musti: [
+    { key: "musti", label: "Musti" }
+  ]
+};
 const RECEIPT_FIELD_LABELS = [
   "Gonderen Adi Soyadi",
   "Gönderen Adı Soyadı",
@@ -183,10 +192,12 @@ function buildMailAccounts() {
     limon: {
       account: "limon",
       label: "Limon",
+      routeAccounts: ["limon", "limon-toplam"],
       email: process.env.DEKONT_MAIL || process.env.LIMON_MAIL || "",
       password: normalizeSecret(process.env.DEKONT_APP_PASSWORD || process.env.LIMON_APP_PASSWORD || ""),
-      searchTerms: SEARCH_TERMS,
-      liveSearchTerms: LIVE_SEARCH_TERMS
+      searchTerms: unique([...SEARCH_TERMS, "1 numaralı", "1 numarali", "3 numaralı", "3 numarali"]),
+      liveSearchTerms: unique([...LIVE_SEARCH_TERMS, "1 numaralı", "1 numarali", "3 numaralı", "3 numarali"]),
+      deepLiveSearch: true
     },
     musti: {
       account: "musti",
@@ -354,12 +365,22 @@ const server = http.createServer(async (req, res) => {
       const user = requireAuth(req, res);
       if (!user) return;
       const body = await readJson(req);
+      const section = normalizeSectionKey(user.account, body.section);
       const current = getAccountSettings(user.account);
+      const sectionSettings = {
+        ...(current.sectionSettings || {}),
+        [section]: {
+          totalAdjustment: Number(body.totalAdjustment || 0),
+          updatedAt: new Date().toISOString(),
+          updatedBy: user.username || user.name || ""
+        }
+      };
       const next = {
         ...current,
-        totalAdjustment: Number(body.totalAdjustment || 0),
+        totalAdjustment: Number(sectionSettings[sectionsForAccount(user.account)[0].key]?.totalAdjustment || 0),
         updatedAt: new Date().toISOString(),
-        updatedBy: user.username || user.name || ""
+        updatedBy: user.username || user.name || "",
+        sectionSettings
       };
       setAccountSettings(user.account, next);
       saveStateNow();
@@ -415,11 +436,13 @@ function serveStatic(req, res, url) {
 }
 
 function buildPayload(account = "limon") {
+  const sections = sectionsForAccount(account);
   const receipts = receiptsForAccount(account);
   const health = getAccountHealth(account);
   const settings = getAccountSettings(account);
   return {
     receipts,
+    sections,
     stats: {
       todayTotal: receipts.reduce((sum, r) => sum + Number(r.amount || 0), 0),
       totalCount: receipts.length,
@@ -432,10 +455,12 @@ function buildPayload(account = "limon") {
 
 function getAccountSettings(account = "limon") {
   const root = state.accountSettings && typeof state.accountSettings === "object" ? state.accountSettings : {};
+  const sectionSettings = root[account] && root[account].sectionSettings && typeof root[account].sectionSettings === "object" ? root[account].sectionSettings : {};
   return {
     totalAdjustment: Number(root[account] && root[account].totalAdjustment ? root[account].totalAdjustment : 0),
     updatedAt: root[account] && root[account].updatedAt ? root[account].updatedAt : "",
-    updatedBy: root[account] && root[account].updatedBy ? root[account].updatedBy : ""
+    updatedBy: root[account] && root[account].updatedBy ? root[account].updatedBy : "",
+    sectionSettings
   };
 }
 
@@ -447,11 +472,22 @@ function setAccountSettings(account, settings) {
 }
 
 function receiptsForAccount(account = "limon") {
-  return sanitizeReceipts(state.receipts).filter((receipt) => receiptAccount(receipt) === account);
+  const sectionKeys = sectionsForAccount(account).map((section) => section.key);
+  return sanitizeReceipts(state.receipts).filter((receipt) => sectionKeys.includes(receiptAccount(receipt)));
 }
 
 function receiptAccount(receipt) {
   return String(receipt && receipt.account ? receipt.account : "limon");
+}
+
+function sectionsForAccount(account = "limon") {
+  return ACCOUNT_SECTIONS[account] || [{ key: account, label: account }];
+}
+
+function normalizeSectionKey(account, section) {
+  const sections = sectionsForAccount(account);
+  const key = String(section || "");
+  return sections.some((item) => item.key === key) ? key : sections[0].key;
 }
 
 function getAccountHealth(account = "limon") {
@@ -554,7 +590,8 @@ async function scanMail(source, { mode = "interval", lookbackDays }) {
     await imap.login();
     const targets = await imap.searchReceiptCandidatesSince(since, searchOptions);
     const known = new Set(state.seen);
-    const receiptKnown = new Set(receiptsForAccount(source.account).map((r) => r.identityKey || r.id));
+    const routeAccounts = Array.isArray(source.routeAccounts) && source.routeAccounts.length ? source.routeAccounts : [source.account];
+    const receiptKnown = new Set(routeAccounts.flatMap((routeAccount) => receiptsForAccount(routeAccount).map((r) => r.identityKey || r.id)));
     const shouldRecheckRecent = mode === "manual";
     const freshTargets = (shouldRecheckRecent ? targets : targets.filter((t) => !known.has(`${source.account}:${t.mailbox}:${t.uid}`))).slice(-fetchLimit);
     const messages = await imap.fetchMessages(freshTargets);
@@ -698,6 +735,7 @@ function parseReceipt(uid, raw, mailbox, account = "limon") {
   const body = cleanText(`${text}\n${htmlText}` || extractText(raw));
   const searchable = normalizeSearch(`${subject}\n${from}\n${body}`);
   if (!isKuveytReceipt(searchable)) return null;
+  const routedAccount = routeReceiptAccount(account, searchable);
   const details = extractReceiptDetails(body);
   const amount = details.amount || findAmount(body);
   if (!amount) return null;
@@ -707,9 +745,19 @@ function parseReceipt(uid, raw, mailbox, account = "limon") {
   const desc = details.description || inferDescription(body) || "Aciklama yok";
   const transactionTime = parseReceiptDate(details.transactionTime || inferDate(body)) || parseDate(root.headers.date) || "";
   const receivedAt = parseDate(root.headers.date) || new Date().toISOString();
-  const identityKey = `${account}:${messageId || `${normalizeSearch(sender)}:${amount.toFixed(2)}:${normalizeSearch(transactionTime || receivedAt)}`}`;
+  const identityKey = `${routedAccount}:${messageId || `${normalizeSearch(sender)}:${amount.toFixed(2)}:${normalizeSearch(transactionTime || receivedAt)}`}`;
   const id = crypto.createHash("sha1").update(identityKey + ":" + uid).digest("hex").slice(0, 12).toUpperCase();
-  return { id, account, uid: String(uid), mailbox, messageId, identityKey, sender, senderBank, amount, currency: "TRY", desc, transactionTime, receivedAt, time: shortTime(transactionTime || receivedAt), status: "Yeni geldi", subject };
+  return { id, account: routedAccount, uid: String(uid), mailbox, messageId, identityKey, sender, senderBank, amount, currency: "TRY", desc, transactionTime, receivedAt, time: shortTime(transactionTime || receivedAt), status: "Yeni geldi", subject };
+}
+
+function routeReceiptAccount(account, searchable) {
+  if (account !== "limon") return account;
+  const compact = compactSearch(searchable);
+  const hasSlot3 = /(^|[^0-9])3\s*numarali\s*hesabiniza/.test(searchable) || compact.includes("3numaralihesabiniza");
+  const hasSlot1 = /(^|[^0-9])1\s*numarali\s*hesabiniza/.test(searchable) || compact.includes("1numaralihesabiniza");
+  if (hasSlot3) return "limon-toplam";
+  if (hasSlot1) return "limon";
+  return "limon";
 }
 
 function isKuveytReceipt(text) {
@@ -1191,7 +1239,14 @@ function shortTime(value) {
 }
 
 function sanitizeReceipts(receipts) {
-  return sortReceipts((receipts || []).filter(isDisplayableReceipt));
+  return sortReceipts((receipts || []).map(normalizeStoredReceiptRoute).filter(isDisplayableReceipt));
+}
+
+function normalizeStoredReceiptRoute(receipt) {
+  if (!receipt || receipt.account !== "limon") return receipt;
+  const searchable = normalizeSearch(`${receipt.subject || ""}\n${receipt.desc || ""}`);
+  const routed = routeReceiptAccount("limon", searchable);
+  return routed === receipt.account ? receipt : { ...receipt, account: routed, identityKey: receipt.identityKey ? receipt.identityKey.replace(/^limon:/, `${routed}:`) : receipt.identityKey };
 }
 
 function isDisplayableReceipt(receipt) {

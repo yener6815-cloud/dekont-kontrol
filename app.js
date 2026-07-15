@@ -38,6 +38,7 @@ const splashLogo = document.getElementById("splashLogo");
 const panelLogo = document.getElementById("panelLogo");
 const sourceLabel = document.getElementById("sourceLabel");
 const manualRefreshOverlay = document.getElementById("manualRefreshOverlay");
+const sectionSwitcher = document.getElementById("sectionSwitcher");
 
 const state = {
   user: null,
@@ -45,6 +46,8 @@ const state = {
   health: {},
   stats: {},
   settings: {},
+  sections: [],
+  activeSection: "",
   page: 1,
   search: "",
   eventSource: null,
@@ -96,6 +99,8 @@ function enterApp(user) {
   state.health = {};
   state.stats = {};
   state.settings = {};
+  state.sections = [];
+  state.activeSection = "";
   state.search = "";
   state.liveReady = false;
   state.lastReceiptRenderKey = "";
@@ -172,6 +177,8 @@ function applyStatusPayload(payload) {
   }
   state.health = nextHealth || state.health || {};
   state.stats = payload.stats || state.stats || {};
+  state.sections = Array.isArray(payload.sections) ? payload.sections : state.sections;
+  ensureActiveSection();
   applySettings(payload.settings);
   renderStatusOnly();
 }
@@ -188,6 +195,8 @@ function applyPayload(payload, mode = "normal", newReceipts = []) {
   state.receipts = Array.isArray(payload.receipts) ? payload.receipts : [];
   state.health = payload.health || {};
   state.stats = payload.stats || {};
+  state.sections = Array.isArray(payload.sections) ? payload.sections : [];
+  ensureActiveSection();
   applySettings(payload.settings);
   ensureLimonCashboxBaseline();
   syncCashbox(newReceipts.length ? newReceipts : state.receipts.filter((item) => !previousIds.has(item.id)));
@@ -200,12 +209,15 @@ function applyPayload(payload, mode = "normal", newReceipts = []) {
 }
 
 function receiptCollectionKey(receipts) {
-  return (receipts || []).map((item) => `${item.id}:${item.status || ""}:${item.amount || 0}`).join("|");
+  return (receipts || []).map((item) => `${item.id}:${item.account || ""}:${item.status || ""}:${item.amount || 0}`).join("|");
 }
 
 function renderAll({ receiptsChanged = true } = {}) {
-  todayTotal.textContent = money(Number(state.stats.todayTotal || 0) + Number(state.totalAdjustment || 0));
-  totalCount.textContent = String(state.stats.totalCount || state.receipts.length || 0);
+  const sectionReceipts = receiptsForActiveSection();
+  const sectionTotal = sectionReceipts.reduce((sum, receipt) => sum + Number(receipt.amount || 0), 0);
+  todayTotal.textContent = money(sectionTotal + Number(state.totalAdjustment || 0));
+  totalCount.textContent = String(sectionReceipts.length || 0);
+  renderSectionSwitcher();
   renderStatusOnly();
   if (receiptsChanged || state.lastReceiptRenderKey !== visibleRenderKey()) {
     renderReceipts();
@@ -215,7 +227,46 @@ function renderAll({ receiptsChanged = true } = {}) {
 
 function applySettings(settings = {}) {
   state.settings = settings || {};
-  state.totalAdjustment = Number(state.settings.totalAdjustment || 0);
+  const sectionKey = activeSectionKey();
+  const sectionSettings = state.settings.sectionSettings && state.settings.sectionSettings[sectionKey] ? state.settings.sectionSettings[sectionKey] : state.settings;
+  state.totalAdjustment = Number(sectionSettings.totalAdjustment || 0);
+}
+
+function ensureActiveSection() {
+  const sections = normalizedSections();
+  const saved = localStorage.getItem(storageKey("section")) || "";
+  if (!state.activeSection || !sections.some((section) => section.key === state.activeSection)) {
+    state.activeSection = sections.some((section) => section.key === saved) ? saved : sections[0].key;
+  }
+}
+
+function normalizedSections() {
+  if (Array.isArray(state.sections) && state.sections.length) return state.sections;
+  const account = state.user && state.user.account ? state.user.account : "limon";
+  return [{ key: account, label: account === "limon" ? "Limon" : "Dekontlar" }];
+}
+
+function activeSectionKey() {
+  ensureActiveSection();
+  return state.activeSection || normalizedSections()[0].key;
+}
+
+function receiptsForActiveSection() {
+  const sectionKey = activeSectionKey();
+  return state.receipts.filter((receipt) => (receipt.account || (state.user && state.user.account) || "limon") === sectionKey);
+}
+
+function renderSectionSwitcher() {
+  if (!sectionSwitcher) return;
+  const sections = normalizedSections();
+  if (sections.length <= 1) {
+    sectionSwitcher.classList.add("hidden");
+    sectionSwitcher.innerHTML = "";
+    return;
+  }
+  sectionSwitcher.classList.remove("hidden");
+  const active = activeSectionKey();
+  sectionSwitcher.innerHTML = sections.map((section) => `<button class="section-button ${section.key === active ? "active" : ""}" type="button" data-section="${escapeHtml(section.key)}">${escapeHtml(section.label)}</button>`).join("");
 }
 
 function renderStatusOnly() {
@@ -234,7 +285,7 @@ function formatScanMinute(value) {
 
 function getVisibleReceipts() {
   const query = normalize(state.search);
-  return state.receipts.filter((receipt) => {
+  return receiptsForActiveSection().filter((receipt) => {
     if (!query) return true;
     return normalize(`${receipt.sender} ${receipt.senderBank} ${receipt.amount} ${receipt.desc} ${receipt.id}`).includes(query);
   });
@@ -330,7 +381,7 @@ function storageKey(name) {
 async function saveTotalAdjustment() {
   return api("/api/account-settings", {
     method: "POST",
-    body: JSON.stringify({ totalAdjustment: Number(state.totalAdjustment || 0) })
+    body: JSON.stringify({ section: activeSectionKey(), totalAdjustment: Number(state.totalAdjustment || 0) })
   });
 }
 
@@ -342,7 +393,7 @@ async function applyTotalAdjustment(action) {
     return;
   }
 
-  const receiptTotal = Number(state.stats.todayTotal || 0);
+  const receiptTotal = receiptsForActiveSection().reduce((sum, receipt) => sum + Number(receipt.amount || 0), 0);
   if (action === "add") {
     state.totalAdjustment = Number(state.totalAdjustment || 0) + amount;
   } else if (action === "subtract") {
@@ -422,6 +473,18 @@ pagination.addEventListener("click", (event) => {
   renderReceipts();
   window.scrollTo({ top: 0, behavior: "smooth" });
 });
+
+sectionSwitcher?.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-section]");
+  if (!button) return;
+  state.activeSection = button.dataset.section;
+  state.page = 1;
+  state.lastReceiptRenderKey = "";
+  localStorage.setItem(storageKey("section"), state.activeSection);
+  applySettings(state.settings);
+  renderAll({ receiptsChanged: true });
+});
+
 cashboxToggle.addEventListener("click", () => cashboxCard.classList.toggle("collapsed"));
 cashboxStart.addEventListener("click", () => {
   const amount = parseMoney(cashboxInput.value);
