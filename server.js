@@ -10,9 +10,6 @@ const LEGACY_DATA_FILE = path.join(DATA_DIR, "receipts.json");
 const DATA_FILE = process.env.DATABASE_FILE || path.join(DATA_DIR, "database.json");
 const PORT = Number(process.env.PORT || 10000);
 const PUBLIC_BASE_URL = String(process.env.PUBLIC_BASE_URL || "").replace(/\/$/, "");
-const SUPABASE_URL = String(process.env.SUPABASE_URL || "").replace(/\/$/, "");
-const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SECRET_KEY || "";
-const SUPABASE_STATE_KEY = process.env.SUPABASE_STATE_KEY || "dekont-kontrol-site";
 const PANEL_USERS = buildPanelUsers();
 const MAIL_ACCOUNTS = buildMailAccounts();
 const SCAN_INTERVAL_MS = clamp(process.env.SCAN_INTERVAL_MS, 1000, 1000, 10000);
@@ -110,8 +107,6 @@ const clients = new Set();
 const scanBusyAccounts = new Set();
 let scanTimer = null;
 let saveTimer = null;
-let supabaseSaveBusy = false;
-let supabaseSaveQueued = false;
 let state = loadState();
 
 function clamp(value, fallback, min, max) {
@@ -226,7 +221,6 @@ function saveStateNow() {
   state.receipts = sanitizeReceipts(state.receipts).slice(0, MAX_STORED_RECEIPTS);
   const snapshot = buildStateSnapshot();
   fs.writeFileSync(DATA_FILE, JSON.stringify(snapshot, null, 2), "utf8");
-  queueSupabaseSave(snapshot);
 }
 
 function buildStateSnapshot() {
@@ -238,74 +232,6 @@ function buildStateSnapshot() {
     health: state.health || {},
     accountSettings: state.accountSettings || {}
   };
-}
-
-function isSupabaseConfigured() {
-  return Boolean(SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY);
-}
-
-async function loadStateFromSupabase() {
-  if (!isSupabaseConfigured()) return false;
-  try {
-    const rows = await supabaseRequest(`/rest/v1/panel_state?state_key=eq.${encodeURIComponent(SUPABASE_STATE_KEY)}&select=value&limit=1`, {
-      method: "GET"
-    });
-    if (!Array.isArray(rows) || !rows.length || !rows[0].value) return false;
-    state = normalizeLoadedState(rows[0].value);
-    saveStateNow();
-    console.log("Supabase state yuklendi");
-    return true;
-  } catch (error) {
-    console.warn(`Supabase state yuklenemedi: ${sanitizeError(error)}`);
-    return false;
-  }
-}
-
-function queueSupabaseSave(snapshot = null) {
-  if (!isSupabaseConfigured()) return;
-  const payload = snapshot || buildStateSnapshot();
-  if (supabaseSaveBusy) {
-    supabaseSaveQueued = payload;
-    return;
-  }
-  supabaseSaveBusy = true;
-  supabaseSaveState(payload)
-    .catch((error) => console.warn(`Supabase state kaydedilemedi: ${sanitizeError(error)}`))
-    .finally(() => {
-      supabaseSaveBusy = false;
-      if (supabaseSaveQueued) {
-        const queued = supabaseSaveQueued;
-        supabaseSaveQueued = false;
-        queueSupabaseSave(queued);
-      }
-    });
-}
-
-async function supabaseSaveState(snapshot) {
-  await supabaseRequest("/rest/v1/panel_state", {
-    method: "POST",
-    headers: { Prefer: "resolution=merge-duplicates" },
-    body: JSON.stringify({
-      state_key: SUPABASE_STATE_KEY,
-      value: snapshot,
-      updated_at: new Date().toISOString()
-    })
-  });
-}
-
-async function supabaseRequest(pathname, options = {}) {
-  const response = await fetch(`${SUPABASE_URL}${pathname}`, {
-    ...options,
-    headers: {
-      apikey: SUPABASE_SERVICE_ROLE_KEY,
-      Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
-      "Content-Type": "application/json",
-      ...(options.headers || {})
-    }
-  });
-  const text = await response.text();
-  if (!response.ok) throw new Error(`Supabase ${response.status}: ${text.slice(0, 220)}`);
-  return text ? JSON.parse(text) : null;
 }
 
 function sendJson(res, code, payload) {
@@ -1243,10 +1169,9 @@ function extractEmailsFromFetch(response) { const text = response.toString("lati
 function sanitizeError(error) { return String(error && error.message ? error.message : error).replace(/[a-z0-9]{16}/gi, "***").replace(/LOGIN .+/gi, "LOGIN ***"); }
 
 async function startServer() {
-  await loadStateFromSupabase();
   server.listen(PORT, () => {
     console.log(`Dekont Kontrol hazir: http://127.0.0.1:${PORT}`);
-    console.log(isSupabaseConfigured() ? "Supabase kalici kayit aktif" : "Supabase kapali, dosya yedegi aktif");
+    console.log("Dosya tabanli kalici kayit aktif");
     startScanLoop();
   });
 }
