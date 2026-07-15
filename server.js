@@ -191,10 +191,11 @@ function loadState() {
     return {
       receipts: Array.isArray(parsed.receipts) ? sanitizeReceipts(parsed.receipts).slice(0, MAX_STORED_RECEIPTS) : [],
       seen: Array.isArray(parsed.seen) ? parsed.seen : [],
-      health: parsed.health && typeof parsed.health === "object" ? parsed.health : {}
+      health: parsed.health && typeof parsed.health === "object" ? parsed.health : {},
+      accountSettings: parsed.accountSettings && typeof parsed.accountSettings === "object" ? parsed.accountSettings : {}
     };
   } catch (error) {
-    return { receipts: [], seen: [], health: {} };
+    return { receipts: [], seen: [], health: {}, accountSettings: {} };
   }
 }
 
@@ -213,7 +214,8 @@ function saveStateNow() {
     savedAt: new Date().toISOString(),
     receipts: state.receipts,
     seen: unique(state.seen).slice(-MAX_STORED_RECEIPTS * 2),
-    health: state.health || {}
+    health: state.health || {},
+    accountSettings: state.accountSettings || {}
   }, null, 2), "utf8");
 }
 
@@ -313,6 +315,23 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, buildPayload(user.account));
     }
 
+    if (req.method === "POST" && url.pathname === "/api/account-settings") {
+      const user = requireAuth(req, res);
+      if (!user) return;
+      const body = await readJson(req);
+      const current = getAccountSettings(user.account);
+      const next = {
+        ...current,
+        totalAdjustment: Number(body.totalAdjustment || 0),
+        updatedAt: new Date().toISOString(),
+        updatedBy: user.username || user.name || ""
+      };
+      setAccountSettings(user.account, next);
+      saveStateNow();
+      broadcast("settings", buildPayload(user.account), user.account);
+      return sendJson(res, 200, buildPayload(user.account));
+    }
+
     if (req.method === "POST" && url.pathname === "/api/refresh") {
       const user = requireAuth(req, res);
       if (!user) return;
@@ -363,6 +382,7 @@ function serveStatic(req, res, url) {
 function buildPayload(account = "limon") {
   const receipts = receiptsForAccount(account);
   const health = getAccountHealth(account);
+  const settings = getAccountSettings(account);
   return {
     receipts,
     stats: {
@@ -370,7 +390,24 @@ function buildPayload(account = "limon") {
       totalCount: receipts.length,
       lastScanAt: health.lastScanAt || ""
     },
-    health
+    health,
+    settings
+  };
+}
+
+function getAccountSettings(account = "limon") {
+  const root = state.accountSettings && typeof state.accountSettings === "object" ? state.accountSettings : {};
+  return {
+    totalAdjustment: Number(root[account] && root[account].totalAdjustment ? root[account].totalAdjustment : 0),
+    updatedAt: root[account] && root[account].updatedAt ? root[account].updatedAt : "",
+    updatedBy: root[account] && root[account].updatedBy ? root[account].updatedBy : ""
+  };
+}
+
+function setAccountSettings(account, settings) {
+  state.accountSettings = {
+    ...(state.accountSettings || {}),
+    [account]: settings
   };
 }
 

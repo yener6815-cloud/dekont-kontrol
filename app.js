@@ -44,6 +44,7 @@ const state = {
   receipts: [],
   health: {},
   stats: {},
+  settings: {},
   page: 1,
   search: "",
   eventSource: null,
@@ -90,10 +91,11 @@ function enterApp(user) {
   const logo = user.logo || "/limon.svg";
   state.page = Number(localStorage.getItem(storageKey("page")) || 1);
   state.cashbox = loadCashbox();
-  state.totalAdjustment = Number(localStorage.getItem(storageKey("totalAdjustment")) || 0);
+  state.totalAdjustment = 0;
   state.receipts = [];
   state.health = {};
   state.stats = {};
+  state.settings = {};
   state.search = "";
   state.liveReady = false;
   state.lastReceiptRenderKey = "";
@@ -160,6 +162,7 @@ function connectEvents() {
     applyPayload(payload, state.liveReady && newReceipts.length ? "toast" : "silent", newReceipts);
     state.liveReady = true;
   });
+  state.eventSource.addEventListener("settings", (event) => applyPayload(JSON.parse(event.data), "silent"));
 }
 
 function applyStatusPayload(payload) {
@@ -169,6 +172,7 @@ function applyStatusPayload(payload) {
   }
   state.health = nextHealth || state.health || {};
   state.stats = payload.stats || state.stats || {};
+  applySettings(payload.settings);
   renderStatusOnly();
 }
 
@@ -184,6 +188,7 @@ function applyPayload(payload, mode = "normal", newReceipts = []) {
   state.receipts = Array.isArray(payload.receipts) ? payload.receipts : [];
   state.health = payload.health || {};
   state.stats = payload.stats || {};
+  applySettings(payload.settings);
   ensureLimonCashboxBaseline();
   syncCashbox(newReceipts.length ? newReceipts : state.receipts.filter((item) => !previousIds.has(item.id)));
   renderAll({
@@ -206,6 +211,11 @@ function renderAll({ receiptsChanged = true } = {}) {
     renderReceipts();
   }
   renderCashbox();
+}
+
+function applySettings(settings = {}) {
+  state.settings = settings || {};
+  state.totalAdjustment = Number(state.settings.totalAdjustment || 0);
 }
 
 function renderStatusOnly() {
@@ -312,16 +322,19 @@ function renderCashbox() {
   cashboxTotal.textContent = money(state.cashbox.total || 0);
 }
 
-function saveTotalAdjustment() {
-  localStorage.setItem(storageKey("totalAdjustment"), String(Number(state.totalAdjustment || 0)));
-}
-
 function storageKey(name) {
   const account = state.user && state.user.account ? state.user.account : "guest";
   return `dk:${account}:${name}`;
 }
 
-function applyTotalAdjustment(action) {
+async function saveTotalAdjustment() {
+  return api("/api/account-settings", {
+    method: "POST",
+    body: JSON.stringify({ totalAdjustment: Number(state.totalAdjustment || 0) })
+  });
+}
+
+async function applyTotalAdjustment(action) {
   const amount = parseMoney(totalAdjustInput?.value || "");
   if (!amount) {
     totalAdjustMessage.textContent = "Gecerli bir tutar yaz.";
@@ -338,10 +351,17 @@ function applyTotalAdjustment(action) {
     state.totalAdjustment = amount - receiptTotal;
   }
 
-  saveTotalAdjustment();
-  totalAdjustInput.value = "";
-  totalAdjustMessage.textContent = `Toplam ${money(receiptTotal + Number(state.totalAdjustment || 0))} olarak guncellendi.`;
-  renderAll({ receiptsChanged: false });
+  const nextAdjustment = state.totalAdjustment;
+  totalAdjustMessage.textContent = "Toplam veritabanina kaydediliyor...";
+  try {
+    const payload = await saveTotalAdjustment();
+    applyPayload(payload, "silent");
+    totalAdjustInput.value = "";
+    totalAdjustMessage.textContent = `Toplam ${money(receiptTotal + Number(nextAdjustment || 0))} olarak kalici kaydedildi.`;
+  } catch (error) {
+    totalAdjustMessage.textContent = error.message || "Toplam kaydedilemedi.";
+    fetchReceipts("silent").catch(() => {});
+  }
 }
 function parseMoney(value) {
   const text = String(value || "").replace(/[^0-9.,]/g, "");
