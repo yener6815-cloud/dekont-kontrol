@@ -10,8 +10,6 @@ const LEGACY_DATA_FILE = path.join(DATA_DIR, "receipts.json");
 const DATA_FILE = process.env.DATABASE_FILE || path.join(DATA_DIR, "database.json");
 const PORT = Number(process.env.PORT || 10000);
 const PUBLIC_BASE_URL = String(process.env.PUBLIC_BASE_URL || "").replace(/\/$/, "");
-const PANEL_USERS = buildPanelUsers();
-const MAIL_ACCOUNTS = buildMailAccounts();
 const SCAN_INTERVAL_MS = clamp(process.env.SCAN_INTERVAL_MS, 1000, 1000, 10000);
 const SCAN_LOOKBACK_DAYS = clamp(process.env.SCAN_LOOKBACK_DAYS, 10, 1, 90);
 const MANUAL_SCAN_LOOKBACK_DAYS = clamp(process.env.MANUAL_SCAN_LOOKBACK_DAYS, 45, 1, 365);
@@ -100,6 +98,8 @@ const RECEIPT_FIELD_ALIASES = {
   ]
 };
 const RECEIPT_FIELD_LOOKUP = buildReceiptFieldLookup();
+const PANEL_USERS = buildPanelUsers();
+const MAIL_ACCOUNTS = buildMailAccounts();
 
 fs.mkdirSync(DATA_DIR, { recursive: true });
 const sessions = new Map();
