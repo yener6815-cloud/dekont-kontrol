@@ -191,10 +191,10 @@ function buildMailAccounts() {
     musti: {
       account: "musti",
       label: "Musti",
-      email: process.env.MUSTI_DEKONT_MAIL || process.env.MUSTI_MAIL || "appzunely@gmail.com",
+      email: process.env.MUSTI_DEKONT_MAIL || process.env.MUSTI_MAIL || "supermedya6@gmail.com",
       password: normalizeSecret(process.env.MUSTI_DEKONT_APP_PASSWORD || process.env.MUSTI_APP_PASSWORD || ""),
-      searchTerms: unique([...SEARCH_TERMS, MUSTI_COMPANY_SUBJECT, "VENUS DIJITAL", "VENÜS DİJİTAL", "appzunely"]),
-      liveSearchTerms: unique([...LIVE_SEARCH_TERMS, ...SEARCH_TERMS, MUSTI_COMPANY_SUBJECT, "VENUS DIJITAL", "VENÜS DİJİTAL", "appzunely"]),
+      searchTerms: unique([...SEARCH_TERMS, MUSTI_COMPANY_SUBJECT, "VENUS DIJITAL", "VENÜS DİJİTAL", "supermedya6"]),
+      liveSearchTerms: unique([...LIVE_SEARCH_TERMS, ...SEARCH_TERMS, MUSTI_COMPANY_SUBJECT, "VENUS DIJITAL", "VENÜS DİJİTAL", "supermedya6"]),
       deepLiveSearch: true
     }
   };
