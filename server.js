@@ -24,6 +24,7 @@ const RECEIPT_MAILBOXES = unique((process.env.RECEIPT_MAILBOXES || "[Gmail]/All 
 const LIVE_RECEIPT_MAILBOXES = unique((process.env.LIVE_RECEIPT_MAILBOXES || "INBOX,[Gmail]/Updates,[Gmail]/Guncellemeler,[Gmail]/All Mail,[Gmail]/Tüm Postalar,[Google Mail]/All Mail").split(",").map((x) => x.trim()).filter(Boolean));
 const SEARCH_TERMS = ["Kuveyt", "Kuveyt Türk", "Kuveyt Turk", "Hesabınıza", "Hesabiniza", "FAST ile para geldi", "EFT ile para geldi", "Havale ile para geldi", "Para Geldi", "Para Girişi", "Para Girisi", "Bilgilendirme"];
 const LIVE_SEARCH_TERMS = unique((process.env.LIVE_SEARCH_TERMS || "Kuveyt,Kuveyt Turk,Para Geldi,FAST").split(",").map((x) => x.trim()).filter(Boolean));
+const MUSTI_COMPANY_SUBJECT = "VENÜS DİJİTAL REKLAM MEDYA VE DANIŞMANLIK TİCARET LİMİTED ŞİRKETİ";
 const RECEIPT_FIELD_LABELS = [
   "Gonderen Adi Soyadi",
   "Gönderen Adı Soyadı",
@@ -163,13 +164,17 @@ function buildMailAccounts() {
       account: "limon",
       label: "Limon",
       email: process.env.DEKONT_MAIL || process.env.LIMON_MAIL || "",
-      password: normalizeSecret(process.env.DEKONT_APP_PASSWORD || process.env.LIMON_APP_PASSWORD || "")
+      password: normalizeSecret(process.env.DEKONT_APP_PASSWORD || process.env.LIMON_APP_PASSWORD || ""),
+      searchTerms: SEARCH_TERMS,
+      liveSearchTerms: LIVE_SEARCH_TERMS
     },
     musti: {
       account: "musti",
       label: "Musti",
-      email: process.env.MUSTI_DEKONT_MAIL || process.env.MUSTI_MAIL || "",
-      password: normalizeSecret(process.env.MUSTI_DEKONT_APP_PASSWORD || process.env.MUSTI_APP_PASSWORD || "")
+      email: process.env.MUSTI_DEKONT_MAIL || process.env.MUSTI_MAIL || "appzunely@gmail.com",
+      password: normalizeSecret(process.env.MUSTI_DEKONT_APP_PASSWORD || process.env.MUSTI_APP_PASSWORD || ""),
+      searchTerms: unique([...SEARCH_TERMS, MUSTI_COMPANY_SUBJECT, "VENUS DIJITAL", "VENÜS DİJİTAL", "appzunely"]),
+      liveSearchTerms: unique([...LIVE_SEARCH_TERMS, MUSTI_COMPANY_SUBJECT, "VENUS DIJITAL", "VENÜS DİJİTAL"])
     }
   };
 }
@@ -469,8 +474,8 @@ async function scanMail(source, { mode = "interval", lookbackDays }) {
     ? new Date(Date.now() - (lookbackDays || SCAN_LOOKBACK_DAYS) * 24 * 60 * 60 * 1000)
     : new Date(Date.now() - HOT_SCAN_LOOKBACK_HOURS * 60 * 60 * 1000);
   const searchOptions = fullScan
-    ? {}
-    : { mailboxes: LIVE_RECEIPT_MAILBOXES, terms: LIVE_SEARCH_TERMS, subjectOnly: true };
+    ? { terms: source.searchTerms || SEARCH_TERMS }
+    : { mailboxes: LIVE_RECEIPT_MAILBOXES, terms: source.liveSearchTerms || LIVE_SEARCH_TERMS, subjectOnly: true };
   const fetchLimit = fullScan ? MAX_FETCH_PER_SCAN : LIVE_FETCH_PER_SCAN;
   await imap.connect();
   try {

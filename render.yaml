@@ -21,6 +21,10 @@
         sync: false
       - key: DEKONT_APP_PASSWORD
         sync: false
+      - key: MUSTI_MAIL
+        sync: false
+      - key: MUSTI_APP_PASSWORD
+        sync: false
       - key: SCAN_INTERVAL_MS
         value: 1000
       - key: DATABASE_FILE
