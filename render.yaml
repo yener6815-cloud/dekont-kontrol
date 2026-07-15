@@ -25,6 +25,12 @@
         sync: false
       - key: MUSTI_APP_PASSWORD
         sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: SUPABASE_STATE_KEY
+        value: dekont-kontrol-site
       - key: SCAN_INTERVAL_MS
         value: 1000
       - key: DATABASE_FILE
