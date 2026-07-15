@@ -135,6 +135,7 @@ fs.mkdirSync(DATA_DIR, { recursive: true });
 const sessions = new Map();
 const clients = new Set();
 const scanBusyAccounts = new Set();
+const pendingScanRequests = new Map();
 let scanTimer = null;
 let saveTimer = null;
 let state = loadState();
@@ -331,6 +332,7 @@ const server = http.createServer(async (req, res) => {
       const token = crypto.randomBytes(32).toString("hex");
       sessions.set(token, { token, ...publicUser(panelUser), expiresAt: Date.now() + SESSION_TTL_MS });
       res.setHeader("Set-Cookie", `dk_session=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=43200`);
+      setImmediate(() => triggerScan(panelUser.account, "manual", MANUAL_SCAN_LOOKBACK_DAYS));
       return sendJson(res, 200, { token, user: publicUser(panelUser) });
     }
 
@@ -343,6 +345,7 @@ const server = http.createServer(async (req, res) => {
 
     if (url.pathname === "/api/me") {
       const user = authUser(req);
+      if (user) setImmediate(() => triggerScan(user.account, "manual", MANUAL_SCAN_LOOKBACK_DAYS));
       return sendJson(res, 200, { authenticated: Boolean(user), user: publicUser(user) });
     }
 
@@ -549,7 +552,10 @@ async function triggerScan(account = "limon", mode = "interval", lookbackDays = 
     scheduleSave();
     return;
   }
-  if (scanBusyAccounts.has(account)) return;
+  if (scanBusyAccounts.has(account)) {
+    queuePendingScan(account, mode, lookbackDays);
+    return;
+  }
   scanBusyAccounts.add(account);
   setAccountHealth(account, { ...getAccountHealth(account), status: "scanning", message: "Son dekontlar okunuyor", startedAt: new Date().toISOString() });
   broadcast("status", buildPayload(account), account);
@@ -574,7 +580,23 @@ async function triggerScan(account = "limon", mode = "interval", lookbackDays = 
     scheduleSave();
   } finally {
     scanBusyAccounts.delete(account);
+    const pending = pendingScanRequests.get(account);
+    if (pending) {
+      pendingScanRequests.delete(account);
+      setImmediate(() => triggerScan(account, pending.mode, pending.lookbackDays));
+    }
   }
+}
+
+function queuePendingScan(account, mode, lookbackDays) {
+  const previous = pendingScanRequests.get(account);
+  const priority = { interval: 1, startup: 2, manual: 3 };
+  const previousPriority = priority[previous && previous.mode] || 0;
+  const nextPriority = priority[mode] || 1;
+  pendingScanRequests.set(account, {
+    mode: nextPriority >= previousPriority ? mode : previous.mode,
+    lookbackDays: Math.max(Number(previous && previous.lookbackDays) || 0, Number(lookbackDays) || 0, SCAN_LOOKBACK_DAYS)
+  });
 }
 
 async function scanMail(source, { mode = "interval", lookbackDays }) {
