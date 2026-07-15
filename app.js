@@ -283,7 +283,7 @@ function visibleRenderKey(pageItems = null, totalPages = null, newestId = "") {
     pageCount,
     normalize(state.search),
     newestId || (getVisibleReceipts()[0] && getVisibleReceipts()[0].id) || "",
-    list.map((receipt) => `${receipt.id}:${receipt.amount}:${receipt.sender}:${receipt.desc}`).join("|")
+    list.map((receipt) => `${receipt.id}:${receipt.amount}:${receipt.sender}:${receipt.senderBank}:${receipt.transactionTime}:${receipt.desc}`).join("|")
   ].join("::");
 }
 

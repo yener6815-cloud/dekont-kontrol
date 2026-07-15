@@ -74,10 +74,12 @@ const RECEIPT_FIELD_ALIASES = {
   senderBank: [
     "Gonderen Bankasi",
     "Gonderen Banka",
+    "Gonderen Banka Adi",
     "Karsi Banka",
     "Gonderici Banka",
     "Gonderici Bankasi",
-    "Banka Adi"
+    "Banka Adi",
+    "Banka"
   ],
   description: [
     "Aciklama",
@@ -100,6 +102,24 @@ const RECEIPT_FIELD_ALIASES = {
 const RECEIPT_FIELD_LOOKUP = buildReceiptFieldLookup();
 const PANEL_USERS = buildPanelUsers();
 const MAIL_ACCOUNTS = buildMailAccounts();
+const BLOCKED_RECEIPT_VALUE_TERMS = [
+  "meydana gelebilecek",
+  "hatalardan dolayi",
+  "eksiklerden dolayi",
+  "sorumluluk kabul",
+  "bankamiz sorumluluk",
+  "kuveyt turk katilim bankasi",
+  "bilgilendirme mesaji",
+  "bu mesaj",
+  "guvenliginiz",
+  "kvkk",
+  "kisisel veri",
+  "detayli bilgi",
+  "www.",
+  "http",
+  "musteri iletisim",
+  "444"
+];
 
 fs.mkdirSync(DATA_DIR, { recursive: true });
 const sessions = new Map();
@@ -683,9 +703,9 @@ function parseReceipt(uid, raw, mailbox, account = "limon") {
   if (!amount) return null;
   const sender = details.sender || inferSender(body);
   if (!isValidSender(sender)) return null;
-  const senderBank = details.senderBank || "Banka bilgisi yok";
+  const senderBank = details.senderBank || inferSenderBank(body) || "Banka bilgisi yok";
   const desc = details.description || inferDescription(body) || "Aciklama yok";
-  const transactionTime = details.transactionTime || inferDate(body) || parseDate(root.headers.date) || "";
+  const transactionTime = parseReceiptDate(details.transactionTime || inferDate(body)) || parseDate(root.headers.date) || "";
   const receivedAt = parseDate(root.headers.date) || new Date().toISOString();
   const identityKey = `${account}:${messageId || `${normalizeSearch(sender)}:${amount.toFixed(2)}:${normalizeSearch(transactionTime || receivedAt)}`}`;
   const id = crypto.createHash("sha1").update(identityKey + ":" + uid).digest("hex").slice(0, 12).toUpperCase();
@@ -981,11 +1001,34 @@ function isUsableReceiptValue(value, key) {
   const cleaned = String(value || "").trim();
   if (!cleaned) return false;
   const normalized = normalizeSearch(cleaned);
-  if (normalized.includes("kuveyt turk bilgilendirme") || normalized.includes("hesabiniza para geldi") || normalized === "belirtilmedi" || looksLikeLabel(cleaned)) return false;
+  if (isBlockedReceiptValue(cleaned) || normalized.includes("kuveyt turk bilgilendirme") || normalized.includes("hesabiniza para geldi") || normalized === "belirtilmedi" || looksLikeLabel(cleaned)) return false;
   if (key === "amount") return parseAmount(cleaned) > 0;
-  if (key === "sender" || key === "senderBank") return /[a-zA-ZÇĞİÖŞÜçğıöşü]/.test(cleaned) && cleaned.length <= 140;
+  if (key === "sender") return isLikelySenderName(cleaned);
+  if (key === "senderBank") return isLikelyBankName(cleaned);
   if (key === "description") return cleaned.length <= 260;
   return cleaned.length <= 120;
+}
+
+function isBlockedReceiptValue(value) {
+  const normalized = normalizeSearch(value);
+  return BLOCKED_RECEIPT_VALUE_TERMS.some((term) => normalized.includes(normalizeSearch(term)));
+}
+
+function isLikelySenderName(value) {
+  const cleaned = sanitizeValue(value);
+  const normalized = normalizeSearch(cleaned);
+  if (!cleaned || cleaned.length < 3 || cleaned.length > 120 || isBlockedReceiptValue(cleaned)) return false;
+  if (/\d{4,}|@|www\.|http/i.test(cleaned)) return false;
+  if (normalized.includes("banka") || normalized.includes("sube") || normalized.includes("iban") || normalized.includes("hesap")) return false;
+  return /[a-zA-ZÇĞİÖŞÜçğıöşü]/.test(cleaned);
+}
+
+function isLikelyBankName(value) {
+  const cleaned = sanitizeValue(value);
+  const normalized = normalizeSearch(cleaned);
+  if (!cleaned || cleaned.length < 3 || cleaned.length > 140 || isBlockedReceiptValue(cleaned)) return false;
+  if (/\d{5,}|@|www\.|http/i.test(cleaned)) return false;
+  return /banka|bankasi|katilim|finans|ziraat|garanti|akbank|yapi kredi|is bankasi|denizbank|vakif|halk|teb|qnb|enpara|papara|payfix|turkiye/i.test(normalized) || /[a-zA-ZÇĞİÖŞÜçğıöşü]/.test(cleaned);
 }
 
 function truncateAtNextReceiptLabel(value) {
@@ -1075,18 +1118,20 @@ function parseLocalizedAmount(value) {
 
 function inferSender(text) {
   const lines = receiptLines(text);
-  const line = lines.find((item) => /adl[ıi]\s+ki[şs]iden|taraf[ıi]ndan|g[oö]nderen/i.test(item));
+  const line = lines.find((item) => !isBlockedReceiptValue(item) && /adl[ıi]\s+ki[şs]iden|taraf[ıi]ndan|g[oö]nderen/i.test(item));
   if (!line) return "";
   const match =
     line.match(/(?:saatinde\s+)?(.{3,90}?)\s+adl[ıi]\s+ki[şs]iden/i) ||
     line.match(/(.{3,90}?)\s+taraf[ıi]ndan/i) ||
     line.match(/g[oö]nderen(?:\s+ad[ıi]\s+soyad[ıi])?\s*[:：]\s*(.{3,90})/i);
-  return match ? sanitizeValue(match[1]) : "";
+  const value = match ? sanitizeReceiptValue(match[1], "sender") : "";
+  return isUsableReceiptValue(value, "sender") ? value : "";
 }
 
 function inferSenderFromSentence(text) {
   const lines = receiptLines(text);
   for (const line of lines) {
+    if (isBlockedReceiptValue(line)) continue;
     const match =
       line.match(/\bsaatinde\s+(.{3,100}?)\s+adl[ıi]\s+ki[şs]iden\b/i) ||
       line.match(/(.{3,100}?)\s+taraf[ıi]ndan\s+(?:hesab[ıi]n[ıi]za|hesabiniza|taraf[ıi]n[ıi]za)/i);
@@ -1096,6 +1141,17 @@ function inferSenderFromSentence(text) {
     }
   }
   return "";
+}
+
+function inferSenderBank(text) {
+  const lines = receiptLines(text);
+  const value = findLabelField(lines, RECEIPT_FIELD_ALIASES.senderBank);
+  if (isUsableReceiptValue(value, "senderBank")) return sanitizeReceiptValue(value, "senderBank");
+  const line = lines.find((item) => !isBlockedReceiptValue(item) && /(?:g[oö]nderen|gonderici|kar[şs][ıi])\s+banka/i.test(item));
+  if (!line) return "";
+  const match = line.match(/(?:g[oö]nderen|gonderici|kar[şs][ıi])\s+banka(?:s[ıi])?\s*[:：-]?\s*(.{3,120})/i);
+  const bank = match ? sanitizeReceiptValue(match[1], "senderBank") : "";
+  return isUsableReceiptValue(bank, "senderBank") ? bank : "";
 }
 
 function inferDescription(text) {
@@ -1114,6 +1170,18 @@ function inferDate(text) {
 function parseDate(value) {
   const date = new Date(value || "");
   return Number.isNaN(date.getTime()) ? "" : date.toISOString();
+}
+
+function parseReceiptDate(value) {
+  const text = String(value || "").trim();
+  if (!text) return "";
+  const direct = parseDate(text);
+  if (direct) return direct;
+  const match = text.match(/\b(\d{1,2})[./-](\d{1,2})[./-](\d{4})(?:\s+(\d{1,2})[:.](\d{2})(?::(\d{2}))?)?/);
+  if (!match) return "";
+  const [, day, month, year, hour = "0", minute = "0", second = "0"] = match;
+  const iso = `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}T${hour.padStart(2, "0")}:${minute.padStart(2, "0")}:${second.padStart(2, "0")}+03:00`;
+  return parseDate(iso);
 }
 
 function shortTime(value) {
@@ -1135,7 +1203,7 @@ function isValidSender(sender) {
   const normalized = normalizeSearch(value);
   if (!value || value.length < 3) return false;
   if (["belirtilmedi", "bilinmiyor", "gonderen yok", "sender yok"].includes(normalized)) return false;
-  return /[a-zA-ZÇĞİÖŞÜçğıöşü]/.test(value);
+  return isLikelySenderName(value);
 }
 
 function maskEmail(value) {
