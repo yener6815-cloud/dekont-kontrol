@@ -179,7 +179,8 @@ function buildMailAccounts() {
       email: process.env.MUSTI_DEKONT_MAIL || process.env.MUSTI_MAIL || "appzunely@gmail.com",
       password: normalizeSecret(process.env.MUSTI_DEKONT_APP_PASSWORD || process.env.MUSTI_APP_PASSWORD || ""),
       searchTerms: unique([...SEARCH_TERMS, MUSTI_COMPANY_SUBJECT, "VENUS DIJITAL", "VENÜS DİJİTAL", "appzunely"]),
-      liveSearchTerms: unique([...LIVE_SEARCH_TERMS, MUSTI_COMPANY_SUBJECT, "VENUS DIJITAL", "VENÜS DİJİTAL"])
+      liveSearchTerms: unique([...LIVE_SEARCH_TERMS, ...SEARCH_TERMS, MUSTI_COMPANY_SUBJECT, "VENUS DIJITAL", "VENÜS DİJİTAL", "appzunely"]),
+      deepLiveSearch: true
     }
   };
 }
@@ -600,7 +601,7 @@ async function scanMail(source, { mode = "interval", lookbackDays }) {
     : new Date(Date.now() - HOT_SCAN_LOOKBACK_HOURS * 60 * 60 * 1000);
   const searchOptions = fullScan
     ? { terms: source.searchTerms || SEARCH_TERMS }
-    : { mailboxes: LIVE_RECEIPT_MAILBOXES, terms: source.liveSearchTerms || LIVE_SEARCH_TERMS, subjectOnly: true };
+    : { mailboxes: LIVE_RECEIPT_MAILBOXES, terms: source.liveSearchTerms || LIVE_SEARCH_TERMS, subjectOnly: !source.deepLiveSearch };
   const fetchLimit = fullScan ? MAX_FETCH_PER_SCAN : LIVE_FETCH_PER_SCAN;
   await imap.connect();
   try {
