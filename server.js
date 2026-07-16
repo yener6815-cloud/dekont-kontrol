@@ -19,6 +19,7 @@ const LIVE_FETCH_PER_SCAN = clamp(process.env.LIVE_FETCH_PER_SCAN, 80, 20, 300);
 const MAX_STORED_RECEIPTS = clamp(process.env.MAX_STORED_RECEIPTS, 3000, 100, 25000);
 const MAX_FETCH_PER_SCAN = clamp(process.env.MAX_FETCH_PER_SCAN, 1000, 20, 2000);
 const SESSION_TTL_MS = 12 * 60 * 60 * 1000;
+const PRIMARY_MAILBOXES = unique((process.env.PRIMARY_MAILBOXES || "INBOX").split(",").map((x) => x.trim()).filter(Boolean));
 const RECEIPT_MAILBOXES = unique((process.env.RECEIPT_MAILBOXES || "[Gmail]/All Mail,[Gmail]/Tüm Postalar,[Google Mail]/All Mail,[Gmail]/Updates,[Gmail]/Guncellemeler,[Gmail]/Categories/Promotions,[Gmail]/Categories/Social,[Gmail]/Kategoriler/Tanıtımlar,[Gmail]/Kategoriler/Sosyal,[Gmail]/Promotions,[Gmail]/Social,[Gmail]/Spam,[Gmail]/Gereksiz,[Gmail]/Junk,INBOX").split(",").map((x) => x.trim()).filter(Boolean));
 const LIVE_RECEIPT_MAILBOXES = unique((process.env.LIVE_RECEIPT_MAILBOXES || "INBOX,[Gmail]/Updates,[Gmail]/Guncellemeler,[Gmail]/All Mail,[Gmail]/Tüm Postalar,[Google Mail]/All Mail").split(",").map((x) => x.trim()).filter(Boolean));
 const SEARCH_TERMS = ["Kuveyt", "Kuveyt Türk", "Kuveyt Turk", "Hesabınıza", "Hesabiniza", "FAST ile para geldi", "EFT ile para geldi", "Havale ile para geldi", "Para Geldi", "Para Girişi", "Para Girisi", "Bilgilendirme"];
@@ -199,6 +200,8 @@ function buildMailAccounts() {
       password: normalizeSecret(process.env.DEKONT_APP_PASSWORD || process.env.LIMON_APP_PASSWORD || ""),
       searchTerms: unique([...SEARCH_TERMS, "1 numaralı", "1 numarali", "2 numaralı", "2 numarali"]),
       liveSearchTerms: unique([...LIVE_SEARCH_TERMS, "1 numaralı", "1 numarali", "2 numaralı", "2 numarali"]),
+      mailboxes: RECEIPT_MAILBOXES,
+      liveMailboxes: LIVE_RECEIPT_MAILBOXES,
       deepLiveSearch: true
     },
     musti: {
@@ -206,8 +209,11 @@ function buildMailAccounts() {
       label: "Musti",
       email: process.env.MUSTI_DEKONT_MAIL || process.env.MUSTI_MAIL || "supermedya6@gmail.com",
       password: normalizeSecret(process.env.MUSTI_DEKONT_APP_PASSWORD || process.env.MUSTI_APP_PASSWORD || ""),
-      searchTerms: unique([...SEARCH_TERMS, MUSTI_COMPANY_SUBJECT, "VENUS DIJITAL", "VENÜS DİJİTAL", "supermedya6"]),
-      liveSearchTerms: unique([...LIVE_SEARCH_TERMS, ...SEARCH_TERMS, MUSTI_COMPANY_SUBJECT, "VENUS DIJITAL", "VENÜS DİJİTAL", "supermedya6"]),
+      requiredSlot: "2",
+      searchTerms: unique([...SEARCH_TERMS, "2 numaralı", "2 numarali", MUSTI_COMPANY_SUBJECT, "VENUS DIJITAL", "VENÜS DİJİTAL", "supermedya6"]),
+      liveSearchTerms: unique([...LIVE_SEARCH_TERMS, "2 numaralı", "2 numarali", MUSTI_COMPANY_SUBJECT, "VENUS DIJITAL", "VENÜS DİJİTAL", "supermedya6"]),
+      mailboxes: PRIMARY_MAILBOXES,
+      liveMailboxes: PRIMARY_MAILBOXES,
       deepLiveSearch: true
     }
   };
@@ -610,8 +616,8 @@ async function scanMail(source, { mode = "interval", lookbackDays }) {
     ? new Date(Date.now() - (lookbackDays || SCAN_LOOKBACK_DAYS) * 24 * 60 * 60 * 1000)
     : new Date(Date.now() - HOT_SCAN_LOOKBACK_HOURS * 60 * 60 * 1000);
   const searchOptions = fullScan
-    ? { terms: source.searchTerms || SEARCH_TERMS }
-    : { mailboxes: LIVE_RECEIPT_MAILBOXES, terms: source.liveSearchTerms || LIVE_SEARCH_TERMS, subjectOnly: !source.deepLiveSearch };
+    ? { mailboxes: source.mailboxes || RECEIPT_MAILBOXES, terms: source.searchTerms || SEARCH_TERMS }
+    : { mailboxes: source.liveMailboxes || LIVE_RECEIPT_MAILBOXES, terms: source.liveSearchTerms || LIVE_SEARCH_TERMS, subjectOnly: !source.deepLiveSearch };
   const fetchLimit = fullScan ? MAX_FETCH_PER_SCAN : LIVE_FETCH_PER_SCAN;
   await imap.connect();
   try {
@@ -629,7 +635,7 @@ async function scanMail(source, { mode = "interval", lookbackDays }) {
     for (const message of messages) {
       processed += 1;
       const key = `${source.account}:${message.mailbox}:${message.uid}`;
-      const parsed = parseReceipt(message.uid, message.raw, message.mailbox, source.account);
+      const parsed = parseReceipt(message.uid, message.raw, message.mailbox, source);
       if (!parsed) {
         skipped += 1;
         continue;
@@ -753,7 +759,8 @@ class ImapClient {
   close() { try { if (this.socket) this.socket.destroy(); } catch (_) {} }
 }
 
-function parseReceipt(uid, raw, mailbox, account = "limon") {
+function parseReceipt(uid, raw, mailbox, source = "limon") {
+  const account = typeof source === "string" ? source : source.account || "limon";
   const root = parseEntity(String(raw || ""));
   const subject = decodeMimeWords(root.headers.subject || "");
   const from = decodeMimeWords(root.headers.from || "");
@@ -763,6 +770,7 @@ function parseReceipt(uid, raw, mailbox, account = "limon") {
   const body = cleanText(`${text}\n${htmlText}` || extractText(raw));
   const searchable = normalizeSearch(`${subject}\n${from}\n${body}`);
   if (!isKuveytReceipt(searchable)) return null;
+  if (source && typeof source === "object" && source.requiredSlot && !hasReceiptSlot(searchable, source.requiredSlot)) return null;
   const routedAccount = routeReceiptAccount(account, searchable);
   const details = extractReceiptDetails(body);
   const amount = details.amount || findAmount(body);
@@ -786,6 +794,13 @@ function routeReceiptAccount(account, searchable) {
   if (hasSlot2) return "limon-toplam";
   if (hasSlot1) return "limon";
   return "limon";
+}
+
+function hasReceiptSlot(searchable, slot) {
+  const compact = compactSearch(searchable);
+  const number = String(slot || "").replace(/\D/g, "");
+  if (!number) return false;
+  return new RegExp(`(^|[^0-9])${number}\\s*numarali\\s*hesabiniza`).test(searchable) || compact.includes(`${number}numaralihesabiniza`);
 }
 
 function isKuveytReceipt(text) {
