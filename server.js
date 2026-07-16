@@ -16,6 +16,7 @@ const SCAN_LOOKBACK_DAYS = clamp(process.env.SCAN_LOOKBACK_DAYS, 30, 1, 180);
 const MANUAL_SCAN_LOOKBACK_DAYS = clamp(process.env.MANUAL_SCAN_LOOKBACK_DAYS, 120, 1, 365);
 const HOT_SCAN_LOOKBACK_HOURS = clamp(process.env.HOT_SCAN_LOOKBACK_HOURS, 48, 1, 168);
 const LIVE_FETCH_PER_SCAN = clamp(process.env.LIVE_FETCH_PER_SCAN, 80, 20, 300);
+const MAILBOX_RECENT_FETCH_LIMIT = clamp(process.env.MAILBOX_RECENT_FETCH_LIMIT, 260, 20, 1000);
 const MAX_STORED_RECEIPTS = clamp(process.env.MAX_STORED_RECEIPTS, 3000, 100, 25000);
 const MAX_FETCH_PER_SCAN = clamp(process.env.MAX_FETCH_PER_SCAN, 1000, 20, 2000);
 const SESSION_TTL_MS = 12 * 60 * 60 * 1000;
@@ -202,6 +203,7 @@ function buildMailAccounts() {
       liveSearchTerms: unique([...LIVE_SEARCH_TERMS, "1 numaralı", "1 numarali", "2 numaralı", "2 numarali"]),
       mailboxes: RECEIPT_MAILBOXES,
       liveMailboxes: LIVE_RECEIPT_MAILBOXES,
+      includeRecentMailboxMessages: true,
       deepLiveSearch: true
     },
     musti: {
@@ -616,8 +618,8 @@ async function scanMail(source, { mode = "interval", lookbackDays }) {
     ? new Date(Date.now() - (lookbackDays || SCAN_LOOKBACK_DAYS) * 24 * 60 * 60 * 1000)
     : new Date(Date.now() - HOT_SCAN_LOOKBACK_HOURS * 60 * 60 * 1000);
   const searchOptions = fullScan
-    ? { mailboxes: source.mailboxes || RECEIPT_MAILBOXES, terms: source.searchTerms || SEARCH_TERMS }
-    : { mailboxes: source.liveMailboxes || LIVE_RECEIPT_MAILBOXES, terms: source.liveSearchTerms || LIVE_SEARCH_TERMS, subjectOnly: !source.deepLiveSearch };
+    ? { mailboxes: source.mailboxes || RECEIPT_MAILBOXES, terms: source.searchTerms || SEARCH_TERMS, includeRecentMailboxMessages: source.includeRecentMailboxMessages }
+    : { mailboxes: source.liveMailboxes || LIVE_RECEIPT_MAILBOXES, terms: source.liveSearchTerms || LIVE_SEARCH_TERMS, subjectOnly: !source.deepLiveSearch, includeRecentMailboxMessages: source.includeRecentMailboxMessages };
   const fetchLimit = fullScan ? MAX_FETCH_PER_SCAN : LIVE_FETCH_PER_SCAN;
   await imap.connect();
   try {
@@ -705,8 +707,18 @@ class ImapClient {
           for (const uid of uids) targets.set(`${mailbox}:${uid}`, { uid: Number(uid), mailbox });
         } catch (_) {}
       }
+      if (options.includeRecentMailboxMessages) {
+        try {
+          const uids = await this.searchRecentSince(date, MAILBOX_RECENT_FETCH_LIMIT);
+          for (const uid of uids) targets.set(`${mailbox}:${uid}`, { uid: Number(uid), mailbox });
+        } catch (_) {}
+      }
     }
     return [...targets.values()].sort((a, b) => a.uid - b.uid);
+  }
+  async searchRecentSince(date, limit = MAILBOX_RECENT_FETCH_LIMIT) {
+    const all = extractSearchUids(await this.command(`UID SEARCH SINCE ${formatImapDate(date)}`, 25000));
+    return all.slice(-limit);
   }
   async fetchMessages(targets) {
     if (!targets.length) return [];
