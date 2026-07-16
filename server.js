@@ -139,7 +139,7 @@ const sessions = new Map();
 const clients = new Set();
 const scanBusyAccounts = new Set();
 const pendingScanRequests = new Map();
-let scanTimer = null;
+const scanTimers = [];
 let saveTimer = null;
 let state = loadState();
 
@@ -205,6 +205,7 @@ function buildMailAccounts() {
       mailboxes: FAST_PRIMARY_MAILBOXES,
       liveMailboxes: FAST_PRIMARY_MAILBOXES,
       includeRecentMailboxMessages: true,
+      liveRecentOnly: true,
       deepLiveSearch: true
     },
     musti: {
@@ -218,6 +219,7 @@ function buildMailAccounts() {
       mailboxes: FAST_PRIMARY_MAILBOXES,
       liveMailboxes: FAST_PRIMARY_MAILBOXES,
       includeRecentMailboxMessages: true,
+      liveRecentOnly: true,
       deepLiveSearch: true
     }
   };
@@ -536,14 +538,15 @@ function broadcast(type, payload, account = null) {
 }
 
 function startScanLoop() {
-  let firstRun = true;
-  const run = async () => {
-    const accounts = Object.keys(MAIL_ACCOUNTS);
-    await Promise.all(accounts.map((account) => triggerScan(account, firstRun ? "startup" : "interval", firstRun ? SCAN_LOOKBACK_DAYS : null)));
-    firstRun = false;
-    scanTimer = setTimeout(run, SCAN_INTERVAL_MS);
-  };
-  scanTimer = setTimeout(run, 300);
+  Object.keys(MAIL_ACCOUNTS).forEach((account, index) => {
+    let firstRun = true;
+    const run = async () => {
+      await triggerScan(account, firstRun ? "startup" : "interval", firstRun ? SCAN_LOOKBACK_DAYS : null);
+      firstRun = false;
+      scanTimers[index] = setTimeout(run, SCAN_INTERVAL_MS);
+    };
+    scanTimers[index] = setTimeout(run, 300 + index * 350);
+  });
 }
 
 async function triggerScan(account = "limon", mode = "interval", lookbackDays = SCAN_LOOKBACK_DAYS) {
@@ -621,7 +624,7 @@ async function scanMail(source, { mode = "interval", lookbackDays }) {
     : new Date(Date.now() - HOT_SCAN_LOOKBACK_HOURS * 60 * 60 * 1000);
   const searchOptions = fullScan
     ? { mailboxes: source.mailboxes || RECEIPT_MAILBOXES, terms: source.searchTerms || SEARCH_TERMS, includeRecentMailboxMessages: source.includeRecentMailboxMessages }
-    : { mailboxes: source.liveMailboxes || LIVE_RECEIPT_MAILBOXES, terms: source.liveSearchTerms || LIVE_SEARCH_TERMS, subjectOnly: !source.deepLiveSearch, includeRecentMailboxMessages: source.includeRecentMailboxMessages };
+    : { mailboxes: source.liveMailboxes || LIVE_RECEIPT_MAILBOXES, terms: source.liveSearchTerms || LIVE_SEARCH_TERMS, subjectOnly: !source.deepLiveSearch, includeRecentMailboxMessages: source.includeRecentMailboxMessages, recentOnly: source.liveRecentOnly };
   const fetchLimit = fullScan ? MAX_FETCH_PER_SCAN : LIVE_FETCH_PER_SCAN;
   await imap.connect();
   try {
@@ -640,12 +643,12 @@ async function scanMail(source, { mode = "interval", lookbackDays }) {
     for (const message of messages) {
       processed += 1;
       const key = `${source.account}:${message.mailbox}:${message.uid}`;
+      state.seen.push(key);
       const parsed = parseReceipt(message.uid, message.raw, message.mailbox, source);
       if (!parsed) {
         skipped += 1;
         continue;
       }
-      state.seen.push(key);
       if (receiptKnown.has(parsed.identityKey) || receiptKnown.has(parsed.id)) continue;
       receiptKnown.add(parsed.identityKey);
       receiptKnown.add(parsed.id);
@@ -713,10 +716,12 @@ class ImapClient {
     const targets = new Map();
     for (const mailbox of available) {
       await this.selectMailbox(mailbox);
-      const runners = [
-        () => this.searchSince(date),
-        ...(options.subjectOnly ? [] : configuredTerms.map((term) => () => this.searchTextSince(date, term)))
-      ];
+      const runners = options.recentOnly
+        ? []
+        : [
+            () => this.searchSince(date),
+            ...(options.subjectOnly ? [] : configuredTerms.map((term) => () => this.searchTextSince(date, term)))
+          ];
       for (const runner of runners) {
         try {
           const uids = await runner();
