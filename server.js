@@ -23,8 +23,7 @@ const SESSION_TTL_MS = 12 * 60 * 60 * 1000;
 const PRIMARY_MAILBOXES = unique((process.env.PRIMARY_MAILBOXES || "INBOX").split(",").map((x) => x.trim()).filter(Boolean));
 const RECEIPT_MAILBOXES = unique((process.env.RECEIPT_MAILBOXES || "[Gmail]/All Mail,[Gmail]/Tüm Postalar,[Google Mail]/All Mail,[Gmail]/Updates,[Gmail]/Guncellemeler,[Gmail]/Categories/Promotions,[Gmail]/Categories/Social,[Gmail]/Kategoriler/Tanıtımlar,[Gmail]/Kategoriler/Sosyal,[Gmail]/Promotions,[Gmail]/Social,[Gmail]/Spam,[Gmail]/Gereksiz,[Gmail]/Junk,INBOX").split(",").map((x) => x.trim()).filter(Boolean));
 const LIVE_RECEIPT_MAILBOXES = unique((process.env.LIVE_RECEIPT_MAILBOXES || "INBOX,[Gmail]/Categories/Social,[Gmail]/Kategoriler/Sosyal,[Gmail]/Social,[Gmail]/Updates,[Gmail]/Guncellemeler,[Gmail]/All Mail,[Gmail]/Tüm Postalar,[Google Mail]/All Mail").split(",").map((x) => x.trim()).filter(Boolean));
-const LIMON_MAILBOXES = unique([...RECEIPT_MAILBOXES, "INBOX", "[Gmail]/Categories/Social", "[Gmail]/Kategoriler/Sosyal", "[Gmail]/Social", "[Gmail]/Updates", "[Gmail]/Guncellemeler", "[Gmail]/All Mail", "[Gmail]/Tüm Postalar", "[Google Mail]/All Mail"]);
-const LIMON_LIVE_MAILBOXES = unique([...LIVE_RECEIPT_MAILBOXES, "INBOX", "[Gmail]/Categories/Social", "[Gmail]/Kategoriler/Sosyal", "[Gmail]/Social", "[Gmail]/Updates", "[Gmail]/Guncellemeler", "[Gmail]/All Mail", "[Gmail]/Tüm Postalar", "[Google Mail]/All Mail"]);
+const FAST_PRIMARY_MAILBOXES = unique(["INBOX", ...PRIMARY_MAILBOXES]);
 const SEARCH_TERMS = ["Kuveyt", "Kuveyt Türk", "Kuveyt Turk", "Hesabınıza", "Hesabiniza", "FAST ile para geldi", "EFT ile para geldi", "Havale ile para geldi", "Para Geldi", "Para Girişi", "Para Girisi", "Bilgilendirme"];
 const LIVE_SEARCH_TERMS = unique((process.env.LIVE_SEARCH_TERMS || "Kuveyt,Kuveyt Turk,Para Geldi,FAST").split(",").map((x) => x.trim()).filter(Boolean));
 const MUSTI_COMPANY_SUBJECT = "VENÜS DİJİTAL REKLAM MEDYA VE DANIŞMANLIK TİCARET LİMİTED ŞİRKETİ";
@@ -203,8 +202,8 @@ function buildMailAccounts() {
       password: normalizeSecret(process.env.DEKONT_APP_PASSWORD || process.env.LIMON_APP_PASSWORD || ""),
       searchTerms: unique([...SEARCH_TERMS, "1 numaralı", "1 numarali", "3 numaralı", "3 numarali"]),
       liveSearchTerms: unique([...LIVE_SEARCH_TERMS, "1 numaralı", "1 numarali", "3 numaralı", "3 numarali"]),
-      mailboxes: LIMON_MAILBOXES,
-      liveMailboxes: LIMON_LIVE_MAILBOXES,
+      mailboxes: FAST_PRIMARY_MAILBOXES,
+      liveMailboxes: FAST_PRIMARY_MAILBOXES,
       includeRecentMailboxMessages: true,
       deepLiveSearch: true
     },
@@ -216,8 +215,9 @@ function buildMailAccounts() {
       requiredSlot: "2",
       searchTerms: unique([...SEARCH_TERMS, "2 numaralı", "2 numarali", MUSTI_COMPANY_SUBJECT, "VENUS DIJITAL", "VENÜS DİJİTAL", "supermedya6"]),
       liveSearchTerms: unique([...LIVE_SEARCH_TERMS, "2 numaralı", "2 numarali", MUSTI_COMPANY_SUBJECT, "VENUS DIJITAL", "VENÜS DİJİTAL", "supermedya6"]),
-      mailboxes: PRIMARY_MAILBOXES,
-      liveMailboxes: PRIMARY_MAILBOXES,
+      mailboxes: FAST_PRIMARY_MAILBOXES,
+      liveMailboxes: FAST_PRIMARY_MAILBOXES,
+      includeRecentMailboxMessages: true,
       deepLiveSearch: true
     }
   };
@@ -630,7 +630,7 @@ async function scanMail(source, { mode = "interval", lookbackDays }) {
     const known = new Set(state.seen);
     const routeAccounts = Array.isArray(source.routeAccounts) && source.routeAccounts.length ? source.routeAccounts : [source.account];
     const receiptKnown = new Set(routeAccounts.flatMap((routeAccount) => receiptsForAccount(routeAccount).map((r) => r.identityKey || r.id)));
-    const shouldRecheckRecent = mode === "manual" || mode === "interval" || mode === "startup";
+    const shouldRecheckRecent = mode === "manual" || mode === "startup";
     const candidateTargets = shouldRecheckRecent ? targets : targets.filter((t) => !known.has(`${source.account}:${t.mailbox}:${t.uid}`));
     const freshTargets = pickRecentTargetsByMailbox(candidateTargets, fetchLimit);
     const messages = await imap.fetchMessages(freshTargets);
