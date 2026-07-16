@@ -22,14 +22,16 @@ const MAX_FETCH_PER_SCAN = clamp(process.env.MAX_FETCH_PER_SCAN, 1000, 20, 2000)
 const SESSION_TTL_MS = 12 * 60 * 60 * 1000;
 const PRIMARY_MAILBOXES = unique((process.env.PRIMARY_MAILBOXES || "INBOX").split(",").map((x) => x.trim()).filter(Boolean));
 const RECEIPT_MAILBOXES = unique((process.env.RECEIPT_MAILBOXES || "[Gmail]/All Mail,[Gmail]/Tüm Postalar,[Google Mail]/All Mail,[Gmail]/Updates,[Gmail]/Guncellemeler,[Gmail]/Categories/Promotions,[Gmail]/Categories/Social,[Gmail]/Kategoriler/Tanıtımlar,[Gmail]/Kategoriler/Sosyal,[Gmail]/Promotions,[Gmail]/Social,[Gmail]/Spam,[Gmail]/Gereksiz,[Gmail]/Junk,INBOX").split(",").map((x) => x.trim()).filter(Boolean));
-const LIVE_RECEIPT_MAILBOXES = unique((process.env.LIVE_RECEIPT_MAILBOXES || "INBOX,[Gmail]/Updates,[Gmail]/Guncellemeler,[Gmail]/All Mail,[Gmail]/Tüm Postalar,[Google Mail]/All Mail").split(",").map((x) => x.trim()).filter(Boolean));
+const LIVE_RECEIPT_MAILBOXES = unique((process.env.LIVE_RECEIPT_MAILBOXES || "INBOX,[Gmail]/Categories/Social,[Gmail]/Kategoriler/Sosyal,[Gmail]/Social,[Gmail]/Updates,[Gmail]/Guncellemeler,[Gmail]/All Mail,[Gmail]/Tüm Postalar,[Google Mail]/All Mail").split(",").map((x) => x.trim()).filter(Boolean));
+const LIMON_MAILBOXES = unique([...RECEIPT_MAILBOXES, "INBOX", "[Gmail]/Categories/Social", "[Gmail]/Kategoriler/Sosyal", "[Gmail]/Social", "[Gmail]/Updates", "[Gmail]/Guncellemeler", "[Gmail]/All Mail", "[Gmail]/Tüm Postalar", "[Google Mail]/All Mail"]);
+const LIMON_LIVE_MAILBOXES = unique([...LIVE_RECEIPT_MAILBOXES, "INBOX", "[Gmail]/Categories/Social", "[Gmail]/Kategoriler/Sosyal", "[Gmail]/Social", "[Gmail]/Updates", "[Gmail]/Guncellemeler", "[Gmail]/All Mail", "[Gmail]/Tüm Postalar", "[Google Mail]/All Mail"]);
 const SEARCH_TERMS = ["Kuveyt", "Kuveyt Türk", "Kuveyt Turk", "Hesabınıza", "Hesabiniza", "FAST ile para geldi", "EFT ile para geldi", "Havale ile para geldi", "Para Geldi", "Para Girişi", "Para Girisi", "Bilgilendirme"];
 const LIVE_SEARCH_TERMS = unique((process.env.LIVE_SEARCH_TERMS || "Kuveyt,Kuveyt Turk,Para Geldi,FAST").split(",").map((x) => x.trim()).filter(Boolean));
 const MUSTI_COMPANY_SUBJECT = "VENÜS DİJİTAL REKLAM MEDYA VE DANIŞMANLIK TİCARET LİMİTED ŞİRKETİ";
 const ACCOUNT_SECTIONS = {
   limon: [
     { key: "limon", label: "LİMON", slot: "1" },
-    { key: "limon-toplam", label: "LİMON TOPLAM", slot: "2" }
+    { key: "limon-toplam", label: "LİMON TOPLAM", slot: "3" }
   ],
   musti: [
     { key: "musti", label: "Musti" }
@@ -199,10 +201,10 @@ function buildMailAccounts() {
       routeAccounts: ["limon", "limon-toplam"],
       email: process.env.DEKONT_MAIL || process.env.LIMON_MAIL || "",
       password: normalizeSecret(process.env.DEKONT_APP_PASSWORD || process.env.LIMON_APP_PASSWORD || ""),
-      searchTerms: unique([...SEARCH_TERMS, "1 numaralı", "1 numarali", "2 numaralı", "2 numarali"]),
-      liveSearchTerms: unique([...LIVE_SEARCH_TERMS, "1 numaralı", "1 numarali", "2 numaralı", "2 numarali"]),
-      mailboxes: RECEIPT_MAILBOXES,
-      liveMailboxes: LIVE_RECEIPT_MAILBOXES,
+      searchTerms: unique([...SEARCH_TERMS, "1 numaralı", "1 numarali", "3 numaralı", "3 numarali"]),
+      liveSearchTerms: unique([...LIVE_SEARCH_TERMS, "1 numaralı", "1 numarali", "3 numaralı", "3 numarali"]),
+      mailboxes: LIMON_MAILBOXES,
+      liveMailboxes: LIMON_LIVE_MAILBOXES,
       includeRecentMailboxMessages: true,
       deepLiveSearch: true
     },
@@ -629,7 +631,8 @@ async function scanMail(source, { mode = "interval", lookbackDays }) {
     const routeAccounts = Array.isArray(source.routeAccounts) && source.routeAccounts.length ? source.routeAccounts : [source.account];
     const receiptKnown = new Set(routeAccounts.flatMap((routeAccount) => receiptsForAccount(routeAccount).map((r) => r.identityKey || r.id)));
     const shouldRecheckRecent = mode === "manual" || mode === "interval" || mode === "startup";
-    const freshTargets = (shouldRecheckRecent ? targets : targets.filter((t) => !known.has(`${source.account}:${t.mailbox}:${t.uid}`))).slice(-fetchLimit);
+    const candidateTargets = shouldRecheckRecent ? targets : targets.filter((t) => !known.has(`${source.account}:${t.mailbox}:${t.uid}`));
+    const freshTargets = pickRecentTargetsByMailbox(candidateTargets, fetchLimit);
     const messages = await imap.fetchMessages(freshTargets);
     const newReceipts = [];
     let processed = 0;
@@ -658,6 +661,19 @@ async function scanMail(source, { mode = "interval", lookbackDays }) {
   } finally {
     imap.close();
   }
+}
+
+function pickRecentTargetsByMailbox(targets, limit) {
+  const grouped = new Map();
+  for (const target of targets || []) {
+    if (!grouped.has(target.mailbox)) grouped.set(target.mailbox, []);
+    grouped.get(target.mailbox).push(target);
+  }
+  const picked = [];
+  for (const list of grouped.values()) {
+    picked.push(...list.sort((a, b) => Number(a.uid) - Number(b.uid)).slice(-limit));
+  }
+  return picked.sort((a, b) => String(a.mailbox).localeCompare(String(b.mailbox)) || Number(a.uid) - Number(b.uid));
 }
 
 class ImapClient {
@@ -784,6 +800,7 @@ function parseReceipt(uid, raw, mailbox, source = "limon") {
   if (!isKuveytReceipt(searchable)) return null;
   if (source && typeof source === "object" && source.requiredSlot && !hasReceiptSlot(searchable, source.requiredSlot)) return null;
   const routedAccount = routeReceiptAccount(account, searchable);
+  if (!routedAccount) return null;
   const details = extractReceiptDetails(body);
   const amount = details.amount || findAmount(body);
   if (!amount) return null;
@@ -801,11 +818,17 @@ function parseReceipt(uid, raw, mailbox, source = "limon") {
 function routeReceiptAccount(account, searchable) {
   if (account !== "limon") return account;
   const compact = compactSearch(searchable);
-  const hasSlot2 = /(^|[^0-9])2\s*numarali\s*hesabiniza/.test(searchable) || compact.includes("2numaralihesabiniza");
+  const hasSlot3 = /(^|[^0-9])3\s*numarali\s*hesabiniza/.test(searchable) || compact.includes("3numaralihesabiniza");
   const hasSlot1 = /(^|[^0-9])1\s*numarali\s*hesabiniza/.test(searchable) || compact.includes("1numaralihesabiniza");
-  if (hasSlot2) return "limon-toplam";
+  if (hasSlot3) return "limon-toplam";
   if (hasSlot1) return "limon";
+  if (hasAnyReceiptSlot(searchable)) return null;
   return "limon";
+}
+
+function hasAnyReceiptSlot(searchable) {
+  const compact = compactSearch(searchable);
+  return /(^|[^0-9])\d+\s*numarali\s*hesabiniza/.test(searchable) || /\d+numaralihesabiniza/.test(compact);
 }
 
 function hasReceiptSlot(searchable, slot) {
@@ -1301,6 +1324,7 @@ function normalizeStoredReceiptRoute(receipt) {
   if (!receipt || receipt.account !== "limon") return receipt;
   const searchable = normalizeSearch(`${receipt.subject || ""}\n${receipt.desc || ""}`);
   const routed = routeReceiptAccount("limon", searchable);
+  if (!routed) return { ...receipt, account: "__ignored__", identityKey: receipt.identityKey ? receipt.identityKey.replace(/^limon:/, "__ignored__:") : receipt.identityKey };
   return routed === receipt.account ? receipt : { ...receipt, account: routed, identityKey: receipt.identityKey ? receipt.identityKey.replace(/^limon:/, `${routed}:`) : receipt.identityKey };
 }
 
