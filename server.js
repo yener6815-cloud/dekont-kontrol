@@ -27,7 +27,7 @@ const MUSTI_COMPANY_SUBJECT = "VENÜS DİJİTAL REKLAM MEDYA VE DANIŞMANLIK Tİ
 const ACCOUNT_SECTIONS = {
   limon: [
     { key: "limon", label: "LİMON", slot: "1" },
-    { key: "limon-toplam", label: "LİMON TOPLAM", slot: "3" }
+    { key: "limon-toplam", label: "LİMON TOPLAM", slot: "2" }
   ],
   musti: [
     { key: "musti", label: "Musti" }
@@ -197,8 +197,8 @@ function buildMailAccounts() {
       routeAccounts: ["limon", "limon-toplam"],
       email: process.env.DEKONT_MAIL || process.env.LIMON_MAIL || "",
       password: normalizeSecret(process.env.DEKONT_APP_PASSWORD || process.env.LIMON_APP_PASSWORD || ""),
-      searchTerms: unique([...SEARCH_TERMS, "1 numaralı", "1 numarali", "3 numaralı", "3 numarali"]),
-      liveSearchTerms: unique([...LIVE_SEARCH_TERMS, "1 numaralı", "1 numarali", "3 numaralı", "3 numarali"]),
+      searchTerms: unique([...SEARCH_TERMS, "1 numaralı", "1 numarali", "2 numaralı", "2 numarali"]),
+      liveSearchTerms: unique([...LIVE_SEARCH_TERMS, "1 numaralı", "1 numarali", "2 numaralı", "2 numarali"]),
       deepLiveSearch: true
     },
     musti: {
@@ -781,9 +781,9 @@ function parseReceipt(uid, raw, mailbox, account = "limon") {
 function routeReceiptAccount(account, searchable) {
   if (account !== "limon") return account;
   const compact = compactSearch(searchable);
-  const hasSlot3 = /(^|[^0-9])3\s*numarali\s*hesabiniza/.test(searchable) || compact.includes("3numaralihesabiniza");
+  const hasSlot2 = /(^|[^0-9])2\s*numarali\s*hesabiniza/.test(searchable) || compact.includes("2numaralihesabiniza");
   const hasSlot1 = /(^|[^0-9])1\s*numarali\s*hesabiniza/.test(searchable) || compact.includes("1numaralihesabiniza");
-  if (hasSlot3) return "limon-toplam";
+  if (hasSlot2) return "limon-toplam";
   if (hasSlot1) return "limon";
   return "limon";
 }
