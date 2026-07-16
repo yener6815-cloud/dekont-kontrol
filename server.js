@@ -14,8 +14,8 @@ const PUBLIC_BASE_URL = String(process.env.PUBLIC_BASE_URL || "").replace(/\/$/,
 const SCAN_INTERVAL_MS = clamp(process.env.SCAN_INTERVAL_MS, 1000, 1000, 10000);
 const SCAN_LOOKBACK_DAYS = clamp(process.env.SCAN_LOOKBACK_DAYS, 30, 1, 180);
 const MANUAL_SCAN_LOOKBACK_DAYS = clamp(process.env.MANUAL_SCAN_LOOKBACK_DAYS, 120, 1, 365);
-const HOT_SCAN_LOOKBACK_HOURS = clamp(process.env.HOT_SCAN_LOOKBACK_HOURS, 6, 1, 24);
-const LIVE_FETCH_PER_SCAN = clamp(process.env.LIVE_FETCH_PER_SCAN, 12, 4, 80);
+const HOT_SCAN_LOOKBACK_HOURS = clamp(process.env.HOT_SCAN_LOOKBACK_HOURS, 48, 1, 168);
+const LIVE_FETCH_PER_SCAN = clamp(process.env.LIVE_FETCH_PER_SCAN, 80, 20, 300);
 const MAX_STORED_RECEIPTS = clamp(process.env.MAX_STORED_RECEIPTS, 3000, 100, 25000);
 const MAX_FETCH_PER_SCAN = clamp(process.env.MAX_FETCH_PER_SCAN, 1000, 20, 2000);
 const SESSION_TTL_MS = 12 * 60 * 60 * 1000;
@@ -620,7 +620,7 @@ async function scanMail(source, { mode = "interval", lookbackDays }) {
     const known = new Set(state.seen);
     const routeAccounts = Array.isArray(source.routeAccounts) && source.routeAccounts.length ? source.routeAccounts : [source.account];
     const receiptKnown = new Set(routeAccounts.flatMap((routeAccount) => receiptsForAccount(routeAccount).map((r) => r.identityKey || r.id)));
-    const shouldRecheckRecent = mode === "manual";
+    const shouldRecheckRecent = mode === "manual" || mode === "interval" || mode === "startup";
     const freshTargets = (shouldRecheckRecent ? targets : targets.filter((t) => !known.has(`${source.account}:${t.mailbox}:${t.uid}`))).slice(-fetchLimit);
     const messages = await imap.fetchMessages(freshTargets);
     const newReceipts = [];
@@ -767,8 +767,8 @@ function parseReceipt(uid, raw, mailbox, account = "limon") {
   const details = extractReceiptDetails(body);
   const amount = details.amount || findAmount(body);
   if (!amount) return null;
-  const sender = details.sender || inferSender(body);
-  if (!isValidSender(sender)) return null;
+  const rawSender = details.sender || inferSender(body);
+  const sender = isValidSender(rawSender) ? rawSender : "Gönderen bilgisi okunuyor";
   const senderBank = details.senderBank || inferSenderBank(body) || "Banka bilgisi yok";
   const desc = details.description || inferDescription(body) || "Aciklama yok";
   const transactionTime = parseReceiptDate(details.transactionTime || inferDate(body)) || parseDate(root.headers.date) || "";
@@ -1278,7 +1278,7 @@ function normalizeStoredReceiptRoute(receipt) {
 }
 
 function isDisplayableReceipt(receipt) {
-  return Boolean(receipt && Number(receipt.amount || 0) > 0 && isValidSender(receipt.sender));
+  return Boolean(receipt && Number(receipt.amount || 0) > 0 && (isValidSender(receipt.sender) || receipt.sender === "Gönderen bilgisi okunuyor"));
 }
 
 function isValidSender(sender) {
@@ -1331,3 +1331,5 @@ startServer().catch((error) => {
   console.error(`Baslatma hatasi: ${sanitizeError(error)}`);
   process.exitCode = 1;
 });
+
+
