@@ -17,6 +17,7 @@ const totalAddButton = document.getElementById("totalAddButton");
 const totalSubtractButton = document.getElementById("totalSubtractButton");
 const totalSetButton = document.getElementById("totalSetButton");
 const totalAdjustMessage = document.getElementById("totalAdjustMessage");
+const totalUpdateNotice = document.getElementById("totalUpdateNotice");
 const totalCount = document.getElementById("totalCount");
 const lastScan = document.getElementById("lastScan");
 const searchInput = document.getElementById("searchInput");
@@ -112,6 +113,8 @@ function enterApp(user) {
   state.lastReceiptRenderKey = "";
   state.lastStatsRenderKey = "";
   if (searchInput) searchInput.value = "";
+  if (totalAdjustMessage) totalAdjustMessage.textContent = "";
+  if (totalUpdateNotice) totalUpdateNotice.textContent = "";
   document.body.dataset.panelTheme = theme;
   const displayName = user.name || user.username || "Limon Admin";
   welcomeTitle.textContent = `${displayName}`;
@@ -233,6 +236,7 @@ function renderAll({ receiptsChanged = true } = {}) {
   totalCount.textContent = String(sectionReceipts.length || 0);
   renderSectionSwitcher();
   renderAdminControls();
+  renderTotalUpdateNotice();
   renderPresence();
   renderStatusOnly();
   if (receiptsChanged || state.lastReceiptRenderKey !== visibleRenderKey()) {
@@ -244,13 +248,15 @@ function renderAll({ receiptsChanged = true } = {}) {
 function applySettings(settings = {}) {
   state.settings = settings || {};
   const sectionKey = activeSectionKey();
-  const sectionSettings = state.settings.sectionSettings && state.settings.sectionSettings[sectionKey] ? state.settings.sectionSettings[sectionKey] : state.settings;
+  const hasSections = state.settings.sectionSettings && typeof state.settings.sectionSettings === "object";
+  const sectionSettings = hasSections ? (state.settings.sectionSettings[sectionKey] || {}) : state.settings;
   state.totalAdjustment = Number(sectionSettings.totalAdjustment || 0);
 }
 
 function currentSectionSettings() {
   const sectionKey = activeSectionKey();
-  return state.settings && state.settings.sectionSettings && state.settings.sectionSettings[sectionKey] ? state.settings.sectionSettings[sectionKey] : (state.settings || {});
+  const hasSections = state.settings && state.settings.sectionSettings && typeof state.settings.sectionSettings === "object";
+  return hasSections ? (state.settings.sectionSettings[sectionKey] || {}) : (state.settings || {});
 }
 
 function renderAdminControls() {
@@ -263,6 +269,18 @@ function renderAdminControls() {
   if (!canManage && totalAdjustMessage && !totalAdjustMessage.textContent) {
     totalAdjustMessage.textContent = "Sadece site yöneticisi değiştirebilir.";
   }
+}
+
+function renderTotalUpdateNotice() {
+  if (!totalUpdateNotice) return;
+  const sectionSettings = currentSectionSettings();
+  if (!sectionSettings.updatedAt) {
+    totalUpdateNotice.textContent = "";
+    totalUpdateNotice.classList.remove("active");
+    return;
+  }
+  totalUpdateNotice.textContent = `Site yöneticisi kasanızı güncelledi · Son güncelleme ${formatScanMinute(sectionSettings.updatedAt)}`;
+  totalUpdateNotice.classList.add("active");
 }
 
 function renderPresence() {

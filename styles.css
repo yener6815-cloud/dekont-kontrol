@@ -230,6 +230,19 @@ body[data-panel-theme="musti"] .receipt-card {
 .stats-grid article { border-radius: 18px; padding: 22px; }
 .stats-grid strong { display: block; font-size: 34px; margin-top: 16px; }
 .total-card { align-content: start; }
+.total-update-notice {
+  display: none;
+  margin-top: 8px;
+  max-width: 100%;
+  color: rgba(255, 240, 179, .82);
+  font-size: 11px;
+  font-weight: 900;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+.total-update-notice.active {
+  display: block;
+}
 .total-adjust { display: grid; gap: 8px; margin-top: 12px; }
 .total-adjust input {
   width: 100%;
