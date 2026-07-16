@@ -5,6 +5,8 @@ const usernameInput = document.getElementById("usernameInput");
 const passwordInput = document.getElementById("passwordInput");
 const togglePassword = document.getElementById("togglePassword");
 const loginMessage = document.getElementById("loginMessage");
+const panelChoice = document.getElementById("panelChoice");
+const forgotPasswordButton = document.getElementById("forgotPasswordButton");
 const welcomeTitle = document.getElementById("welcomeTitle");
 const clockText = document.getElementById("clockText");
 const logoutButton = document.getElementById("logoutButton");
@@ -39,6 +41,7 @@ const panelLogo = document.getElementById("panelLogo");
 const sourceLabel = document.getElementById("sourceLabel");
 const manualRefreshOverlay = document.getElementById("manualRefreshOverlay");
 const sectionSwitcher = document.getElementById("sectionSwitcher");
+const adminPresence = document.getElementById("adminPresence");
 
 const state = {
   user: null,
@@ -54,6 +57,8 @@ const state = {
   liveReady: false,
   cashbox: {},
   totalAdjustment: 0,
+  presence: null,
+  pendingPanels: [],
   lastReceiptRenderKey: "",
   lastStatsRenderKey: ""
 };
@@ -100,6 +105,7 @@ function enterApp(user) {
   state.stats = {};
   state.settings = {};
   state.sections = [];
+  state.presence = null;
   state.activeSection = "";
   state.search = "";
   state.liveReady = false;
@@ -144,6 +150,7 @@ function leaveApp() {
     setTimeout(() => loginView.classList.remove("login-fade-in"), 420);
   }, 220);
   passwordInput.value = "";
+  hidePanelChoice();
 }
 
 function showWelcomeSplash() {
@@ -167,7 +174,7 @@ function connectEvents() {
     applyPayload(payload, state.liveReady && newReceipts.length ? "toast" : "silent", newReceipts);
     state.liveReady = true;
   });
-  state.eventSource.addEventListener("settings", (event) => applyPayload(JSON.parse(event.data), "silent"));
+  state.eventSource.addEventListener("settings", (event) => applyPayload(JSON.parse(event.data), "settings"));
 }
 
 function applyStatusPayload(payload) {
@@ -177,6 +184,7 @@ function applyStatusPayload(payload) {
   }
   state.health = nextHealth || state.health || {};
   state.stats = payload.stats || state.stats || {};
+  state.presence = payload.presence || state.presence || null;
   state.sections = Array.isArray(payload.sections) ? payload.sections : state.sections;
   ensureActiveSection();
   applySettings(payload.settings);
@@ -192,12 +200,18 @@ async function fetchReceipts(mode = "normal") {
 function applyPayload(payload, mode = "normal", newReceipts = []) {
   const previousIds = new Set(state.receipts.map((item) => item.id));
   const previousReceiptKey = receiptCollectionKey(state.receipts);
+  const previousSettingsAt = currentSectionSettings().updatedAt || "";
   state.receipts = Array.isArray(payload.receipts) ? payload.receipts : [];
   state.health = payload.health || {};
   state.stats = payload.stats || {};
   state.sections = Array.isArray(payload.sections) ? payload.sections : [];
+  state.presence = payload.presence || null;
   ensureActiveSection();
   applySettings(payload.settings);
+  const nextSettings = currentSectionSettings();
+  if (mode === "settings" && !state.user?.canManageTotals && previousSettingsAt && nextSettings.updatedAt && previousSettingsAt !== nextSettings.updatedAt) {
+    showInfoToast("Site yöneticiniz kasayı güncelledi", nextSettings.updatedBy ? `${nextSettings.updatedBy} tarafından güncellendi` : "Toplam tutar anlık yenilendi");
+  }
   ensureLimonCashboxBaseline();
   syncCashbox(newReceipts.length ? newReceipts : state.receipts.filter((item) => !previousIds.has(item.id)));
   renderAll({
@@ -218,6 +232,8 @@ function renderAll({ receiptsChanged = true } = {}) {
   todayTotal.textContent = money(sectionTotal + Number(state.totalAdjustment || 0));
   totalCount.textContent = String(sectionReceipts.length || 0);
   renderSectionSwitcher();
+  renderAdminControls();
+  renderPresence();
   renderStatusOnly();
   if (receiptsChanged || state.lastReceiptRenderKey !== visibleRenderKey()) {
     renderReceipts();
@@ -230,6 +246,47 @@ function applySettings(settings = {}) {
   const sectionKey = activeSectionKey();
   const sectionSettings = state.settings.sectionSettings && state.settings.sectionSettings[sectionKey] ? state.settings.sectionSettings[sectionKey] : state.settings;
   state.totalAdjustment = Number(sectionSettings.totalAdjustment || 0);
+}
+
+function currentSectionSettings() {
+  const sectionKey = activeSectionKey();
+  return state.settings && state.settings.sectionSettings && state.settings.sectionSettings[sectionKey] ? state.settings.sectionSettings[sectionKey] : (state.settings || {});
+}
+
+function renderAdminControls() {
+  const canManage = Boolean(state.user && state.user.canManageTotals);
+  [totalAdjustInput, totalAddButton, totalSubtractButton, totalSetButton].forEach((item) => {
+    if (item) item.disabled = !canManage;
+  });
+  const adjust = document.querySelector(".total-adjust");
+  if (adjust) adjust.classList.toggle("locked", !canManage);
+  if (!canManage && totalAdjustMessage && !totalAdjustMessage.textContent) {
+    totalAdjustMessage.textContent = "Sadece site yöneticisi değiştirebilir.";
+  }
+}
+
+function renderPresence() {
+  if (!adminPresence) return;
+  const presence = state.presence;
+  if (!state.user || !state.user.canManageTotals || !presence) {
+    adminPresence.classList.add("hidden");
+    adminPresence.innerHTML = "";
+    return;
+  }
+  const devices = Array.isArray(presence.devices) ? presence.devices : [];
+  adminPresence.classList.remove("hidden");
+  adminPresence.innerHTML = `
+    <div>
+      <span>Yönetici izlemesi</span>
+      <strong>${Number(presence.totalDevices || 0)} aktif cihaz · ${Number(presence.totalSessions || 0)} açık oturum</strong>
+    </div>
+    <div class="presence-list">
+      ${devices.length ? devices.map((device) => `
+        <article>
+          <b>${escapeHtml(device.name || "Bilinmeyen")}</b>
+          <small>${escapeHtml(device.account || "-")} · ${escapeHtml(shortDate(device.connectedAt))}</small>
+        </article>`).join("") : `<article><b>Aktif cihaz yok</b><small>Panel bağlantısı bekleniyor</small></article>`}
+    </div>`;
 }
 
 function ensureActiveSection() {
@@ -346,6 +403,14 @@ function showReceiptToast(receipt) {
   setTimeout(() => toast.remove(), 6500);
 }
 
+function showInfoToast(title, detail = "") {
+  const toast = document.createElement("div");
+  toast.className = "toast";
+  toast.innerHTML = `<span>${escapeHtml(title)}</span>${detail ? `<strong>${escapeHtml(detail)}</strong>` : ""}`;
+  toastWrap.appendChild(toast);
+  setTimeout(() => toast.remove(), 6500);
+}
+
 function loadCashbox() {
   try { return JSON.parse(localStorage.getItem(storageKey("cashbox")) || "{}"); } catch (_) { return {}; }
 }
@@ -386,6 +451,10 @@ async function saveTotalAdjustment() {
 }
 
 async function applyTotalAdjustment(action) {
+  if (!state.user?.canManageTotals) {
+    totalAdjustMessage.textContent = "Sadece site yöneticisi değiştirebilir.";
+    return;
+  }
   const amount = parseMoney(totalAdjustInput?.value || "");
   if (!amount) {
     totalAdjustMessage.textContent = "Gecerli bir tutar yaz.";
@@ -430,11 +499,52 @@ loginForm.addEventListener("submit", async (event) => {
   loginMessage.textContent = "Giriş kontrol ediliyor...";
   try {
     const payload = await api("/api/login", { method: "POST", body: JSON.stringify({ username: usernameInput.value, password: passwordInput.value }) });
+    if (payload.requiresPanelSelection) {
+      loginMessage.textContent = "Lütfen girmek istediğiniz paneli seçin.";
+      renderPanelChoice(payload.panels || []);
+      return;
+    }
     loginMessage.textContent = "";
+    hidePanelChoice();
     enterApp(payload.user);
   } catch (error) {
     loginMessage.textContent = error.message;
   }
+});
+
+function renderPanelChoice(panels) {
+  if (!panelChoice) return;
+  state.pendingPanels = panels;
+  panelChoice.classList.remove("hidden");
+  panelChoice.innerHTML = `<strong>Hangi panele girmek istiyorsun?</strong>${panels.map((panel) => `<button type="button" data-panel-account="${escapeHtml(panel.account)}">${escapeHtml(panel.label)}</button>`).join("")}`;
+}
+
+function hidePanelChoice() {
+  if (!panelChoice) return;
+  state.pendingPanels = [];
+  panelChoice.classList.add("hidden");
+  panelChoice.innerHTML = "";
+}
+
+panelChoice?.addEventListener("click", async (event) => {
+  const button = event.target.closest("[data-panel-account]");
+  if (!button) return;
+  loginMessage.textContent = "Yönetici paneli açılıyor...";
+  try {
+    const payload = await api("/api/login", {
+      method: "POST",
+      body: JSON.stringify({ username: usernameInput.value, password: passwordInput.value, account: button.dataset.panelAccount })
+    });
+    loginMessage.textContent = "";
+    hidePanelChoice();
+    enterApp(payload.user);
+  } catch (error) {
+    loginMessage.textContent = error.message;
+  }
+});
+
+forgotPasswordButton?.addEventListener("click", () => {
+  loginMessage.textContent = "WhatsApp grubunuzdan hangi hesabın şifresini unuttuğunuzu site yöneticisine bildirin.";
 });
 
 togglePassword.addEventListener("click", () => {

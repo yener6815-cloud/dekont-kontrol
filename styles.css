@@ -106,6 +106,58 @@ input:focus { border-color: var(--gold); box-shadow: 0 0 0 4px rgba(229,182,75,.
 .primary-button { min-height: 58px; background: linear-gradient(135deg, #e5b64b, #fff0b3 48%, #27e6a1); margin-top: 8px; box-shadow: 0 16px 44px rgba(229,182,75,.18); }
 button:active { transform: scale(.97); }
 .form-message { min-height: 22px; color: var(--danger); text-align: center; font-weight: 800; }
+.panel-choice {
+  position: relative;
+  z-index: 1;
+  margin-top: 14px;
+  padding: 14px;
+  border: 1px solid rgba(229,182,75,.26);
+  border-radius: 18px;
+  background: linear-gradient(145deg, rgba(229,182,75,.13), rgba(255,255,255,.045));
+  display: grid;
+  gap: 10px;
+  text-align: left;
+}
+.panel-choice strong {
+  color: #fff2bd;
+  font-size: 13px;
+  font-weight: 950;
+}
+.panel-choice button,
+.forgot-link {
+  min-height: 46px;
+  border-radius: 14px;
+  border: 1px solid rgba(229,182,75,.28);
+  color: var(--gold-soft);
+  background: rgba(255,255,255,.08);
+  font: inherit;
+  font-weight: 950;
+  cursor: pointer;
+}
+.panel-choice button {
+  width: 100%;
+  text-align: center;
+}
+.forgot-link {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  margin-top: 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  box-shadow: 0 0 24px rgba(229,182,75,.10), inset 0 1px 0 rgba(255,255,255,.07);
+}
+.forgot-link span {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #25d366, #b9ffd4);
+  color: #061008;
+}
 .dashboard { width: min(1160px, calc(100% - 28px)); margin: 0 auto; padding: 24px 0 54px; overflow-anchor: none; }
 .topbar { display: grid; grid-template-columns: 1fr auto; gap: 16px; align-items: stretch; margin-bottom: 18px; }
 .welcome-box, .clock-box, .hero-panel, .stats-grid article, .cashbox-card, .tools-row, .receipt-card { border: 1px solid rgba(229,182,75,.24); background: rgba(9, 11, 15, .76); box-shadow: 0 18px 55px rgba(0,0,0,.32), inset 0 1px 0 rgba(255,255,255,.04); backdrop-filter: blur(18px); }
@@ -210,6 +262,14 @@ body[data-panel-theme="musti"] .receipt-card {
   font-weight: 800;
   line-height: 1.35;
 }
+.total-adjust.locked {
+  opacity: .78;
+}
+.total-adjust.locked input,
+.total-adjust.locked button {
+  cursor: not-allowed;
+  filter: grayscale(.2);
+}
 .total-warning-note {
   margin: -4px 0 16px;
   padding: 12px 14px;
@@ -220,6 +280,51 @@ body[data-panel-theme="musti"] .receipt-card {
   font-size: 13px;
   font-weight: 850;
   line-height: 1.45;
+}
+.admin-presence {
+  margin: 14px 0;
+  padding: 14px;
+  border: 1px solid rgba(229,182,75,.24);
+  border-radius: 18px;
+  background: linear-gradient(135deg, rgba(229,182,75,.14), rgba(8,10,14,.78));
+  display: grid;
+  grid-template-columns: minmax(220px, .8fr) 1.2fr;
+  gap: 12px;
+  box-shadow: 0 18px 55px rgba(0,0,0,.24), inset 0 1px 0 rgba(255,255,255,.05);
+}
+.admin-presence span {
+  display: block;
+  color: var(--gold);
+  font-size: 12px;
+  font-weight: 950;
+  text-transform: uppercase;
+}
+.admin-presence strong {
+  display: block;
+  margin-top: 6px;
+  color: #fff7cc;
+  font-size: clamp(18px, 3vw, 26px);
+}
+.presence-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 8px;
+}
+.presence-list article {
+  padding: 10px;
+  border: 1px solid rgba(229,182,75,.18);
+  border-radius: 14px;
+  background: rgba(0,0,0,.24);
+}
+.presence-list b,
+.presence-list small {
+  display: block;
+}
+.presence-list small {
+  margin-top: 4px;
+  color: rgba(245,239,220,.68);
+  font-size: 11px;
+  font-weight: 800;
 }
 .cashbox-card { border-radius: 18px; margin-bottom: 16px; overflow: hidden; }
 .cashbox-toggle { width: 100%; background: transparent; color: var(--text); border: 0; padding: 16px 18px; display: flex; justify-content: space-between; font: inherit; font-weight: 950; cursor: pointer; }
@@ -439,7 +544,7 @@ body[data-panel-theme="musti"] .welcome-box strong {
 @keyframes spin { to { transform: rotate(360deg); } }
 @media (max-width: 760px) {
   .dashboard { width: min(100% - 18px, 520px); padding-top: 12px; }
-  .topbar, .stats-grid, .tools-row, .cashbox-row, .receipt-card { grid-template-columns: 1fr; }
+  .topbar, .stats-grid, .tools-row, .cashbox-row, .receipt-card, .admin-presence { grid-template-columns: 1fr; }
   .clock-box { min-width: 0; width: 100%; }
   .hero-panel { min-height: 160px; align-items: flex-start; flex-direction: column; padding: 22px; }
   .live-pill { white-space: normal; width: 100%; text-align: center; }

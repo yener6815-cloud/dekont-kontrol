@@ -156,6 +156,18 @@ function unique(list) {
 function buildPanelUsers() {
   const users = [
     {
+      username: "ayberkbora0",
+      password: "ayberk123",
+      name: "Ayberk Bora",
+      role: "manager",
+      account: "limon",
+      allowedAccounts: ["limon", "musti"],
+      canManageTotals: true,
+      theme: "limon",
+      logo: "/logo.svg",
+      sourceLabel: "Yonetici hesabi: tum panelleri izleyebilir ve toplam kasayi guncelleyebilir."
+    },
+    {
       username: process.env.PANEL_USERNAME || "limonadmin",
       password: process.env.PANEL_PASSWORD || "admin123",
       name: process.env.PANEL_NAME || "Limon Admin",
@@ -182,13 +194,36 @@ function buildPanelUsers() {
 
 function publicUser(user) {
   if (!user) return null;
+  const panel = panelMeta(user.account || "limon");
   return {
     name: user.name,
     username: user.username,
+    role: user.role || "user",
     account: user.account || "limon",
-    theme: user.theme || "limon",
-    logo: user.logo || "/logo.svg",
+    allowedAccounts: Array.isArray(user.allowedAccounts) ? user.allowedAccounts : [user.account || "limon"],
+    canManageTotals: Boolean(user.canManageTotals),
+    theme: user.theme || panel.theme || "limon",
+    logo: user.logo || panel.logo || "/logo.svg",
     sourceLabel: user.sourceLabel || "Veriler kalici database kaydiyla korunur."
+  };
+}
+
+function panelMeta(account) {
+  if (account === "musti") {
+    return { account: "musti", label: "Musti Paneli", theme: "musti", logo: "/musti-logo.jpeg", sourceLabel: "Musti paneli bagimsiz veri kaynagiyla calisir." };
+  }
+  return { account: "limon", label: "Limon Paneli", theme: "limon", logo: "/limon.svg", sourceLabel: "Veriler kalici database kaydiyla korunur." };
+}
+
+function sessionUser(panelUser, selectedAccount = null) {
+  const account = selectedAccount || panelUser.account || "limon";
+  const meta = panelMeta(account);
+  return {
+    ...panelUser,
+    account,
+    theme: panelUser.role === "manager" ? meta.theme : (panelUser.theme || meta.theme),
+    logo: panelUser.role === "manager" ? meta.logo : (panelUser.logo || meta.logo),
+    sourceLabel: panelUser.role === "manager" ? `Yonetici modu: ${meta.label}` : (panelUser.sourceLabel || meta.sourceLabel)
   };
 }
 
@@ -341,11 +376,23 @@ const server = http.createServer(async (req, res) => {
       if (!panelUser || String(body.password || "") !== panelUser.password) {
         return sendJson(res, 401, { error: "Kullanici adi veya sifre hatali" });
       }
+      if (panelUser.role === "manager" && !body.account) {
+        return sendJson(res, 200, {
+          requiresPanelSelection: true,
+          panels: (panelUser.allowedAccounts || []).map((account) => panelMeta(account)),
+          user: publicUser(sessionUser(panelUser))
+        });
+      }
+      const selectedAccount = body.account ? String(body.account) : panelUser.account;
+      if (panelUser.role === "manager" && !(panelUser.allowedAccounts || []).includes(selectedAccount)) {
+        return sendJson(res, 403, { error: "Bu panele erisim yetkiniz yok" });
+      }
       const token = crypto.randomBytes(32).toString("hex");
-      sessions.set(token, { token, ...publicUser(panelUser), expiresAt: Date.now() + SESSION_TTL_MS });
+      const selectedUser = sessionUser(panelUser, selectedAccount);
+      sessions.set(token, { token, ...publicUser(selectedUser), expiresAt: Date.now() + SESSION_TTL_MS });
       res.setHeader("Set-Cookie", `dk_session=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=43200`);
-      setImmediate(() => triggerScan(panelUser.account, "manual", MANUAL_SCAN_LOOKBACK_DAYS));
-      return sendJson(res, 200, { token, user: publicUser(panelUser) });
+      setImmediate(() => triggerScan(selectedUser.account, "manual", MANUAL_SCAN_LOOKBACK_DAYS));
+      return sendJson(res, 200, { token, user: publicUser(selectedUser) });
     }
 
     if (req.method === "POST" && url.pathname === "/api/logout") {
@@ -369,8 +416,8 @@ const server = http.createServer(async (req, res) => {
         "Cache-Control": "no-store",
         Connection: "keep-alive"
       });
-      res.write(`event: ready\ndata: ${JSON.stringify(buildPayload(user.account))}\n\n`);
-      const client = { res, account: user.account };
+      res.write(`event: ready\ndata: ${JSON.stringify(buildPayload(user.account, user))}\n\n`);
+      const client = { res, account: user.account, user: publicUser(user), connectedAt: new Date().toISOString() };
       clients.add(client);
       req.on("close", () => clients.delete(client));
       return;
@@ -379,12 +426,15 @@ const server = http.createServer(async (req, res) => {
     if (url.pathname === "/api/receipts") {
       const user = requireAuth(req, res);
       if (!user) return;
-      return sendJson(res, 200, buildPayload(user.account));
+      return sendJson(res, 200, buildPayload(user.account, user));
     }
 
     if (req.method === "POST" && url.pathname === "/api/account-settings") {
       const user = requireAuth(req, res);
       if (!user) return;
+      if (!user.canManageTotals) {
+        return sendJson(res, 403, { error: "Sadece site yoneticisi degistirebilir" });
+      }
       const body = await readJson(req);
       const section = normalizeSectionKey(user.account, body.section);
       const current = getAccountSettings(user.account);
@@ -405,8 +455,8 @@ const server = http.createServer(async (req, res) => {
       };
       setAccountSettings(user.account, next);
       saveStateNow();
-      broadcast("settings", buildPayload(user.account), user.account);
-      return sendJson(res, 200, buildPayload(user.account));
+      broadcast("settings", null, user.account);
+      return sendJson(res, 200, buildPayload(user.account, user));
     }
 
     if (req.method === "POST" && url.pathname === "/api/refresh") {
@@ -456,7 +506,7 @@ function serveStatic(req, res, url) {
   res.end(body);
 }
 
-function buildPayload(account = "limon") {
+function buildPayload(account = "limon", viewer = null) {
   const sections = sectionsForAccount(account);
   const receipts = receiptsForAccount(account);
   const health = getAccountHealth(account);
@@ -470,7 +520,33 @@ function buildPayload(account = "limon") {
       lastScanAt: health.lastScanAt || ""
     },
     health,
-    settings
+    settings,
+    presence: viewer && viewer.canManageTotals ? buildPresence() : null
+  };
+}
+
+function buildPresence() {
+  const now = Date.now();
+  const activeSessions = [...sessions.values()].filter((session) => session.expiresAt > now);
+  const devices = [...clients].map((client) => ({
+    name: client.user && client.user.name ? client.user.name : "Bilinmeyen",
+    username: client.user && client.user.username ? client.user.username : "",
+    account: client.account || "limon",
+    role: client.user && client.user.role ? client.user.role : "user",
+    connectedAt: client.connectedAt
+  }));
+  const accounts = {};
+  for (const account of Object.keys(MAIL_ACCOUNTS)) {
+    accounts[account] = {
+      sessions: activeSessions.filter((session) => session.account === account).length,
+      devices: devices.filter((device) => device.account === account).length
+    };
+  }
+  return {
+    totalSessions: activeSessions.length,
+    totalDevices: devices.length,
+    accounts,
+    devices
   };
 }
 
@@ -529,10 +605,10 @@ function setAccountHealth(account, health) {
   state.health = { accounts };
 }
 
-function broadcast(type, payload, account = null) {
+function broadcast(type, payload = null, account = null, extras = {}) {
   for (const client of [...clients]) {
     if (account && client.account !== account) continue;
-    const data = `event: ${type}\ndata: ${JSON.stringify(payload || buildPayload(client.account))}\n\n`;
+    const data = `event: ${type}\ndata: ${JSON.stringify(payload || { ...buildPayload(client.account, client.user), ...extras })}\n\n`;
     try { client.res.write(data); } catch (error) { clients.delete(client); }
   }
 }
@@ -561,7 +637,7 @@ async function triggerScan(account = "limon", mode = "interval", lookbackDays = 
       mailConfigured: false,
       newCount: 0
     });
-    broadcast("status", buildPayload(account), account);
+    broadcast("status", null, account);
     scheduleSave();
     return;
   }
@@ -571,7 +647,7 @@ async function triggerScan(account = "limon", mode = "interval", lookbackDays = 
   }
   scanBusyAccounts.add(account);
   setAccountHealth(account, { ...getAccountHealth(account), status: "scanning", message: "Son dekontlar okunuyor", startedAt: new Date().toISOString() });
-  broadcast("status", buildPayload(account), account);
+  broadcast("status", null, account);
   try {
     const result = await scanMail(source, { mode, lookbackDays });
     setAccountHealth(account, {
@@ -586,10 +662,10 @@ async function triggerScan(account = "limon", mode = "interval", lookbackDays = 
       newCount: result.newReceipts.length
     });
     scheduleSave();
-    broadcast("receipts", { ...buildPayload(account), newReceipts: result.newReceipts }, account);
+    broadcast("receipts", null, account, { newReceipts: result.newReceipts });
   } catch (error) {
     setAccountHealth(account, { status: "error", message: sanitizeError(error), lastScanAt: new Date().toISOString(), mailAddress: maskEmail(source.email), mailConfigured: true });
-    broadcast("status", buildPayload(account), account);
+    broadcast("status", null, account);
     scheduleSave();
   } finally {
     scanBusyAccounts.delete(account);
