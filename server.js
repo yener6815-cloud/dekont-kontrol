@@ -195,7 +195,7 @@ function buildPanelUsers() {
       account: "ena",
       theme: "ena",
       logo: "/ahava-logo.jpeg",
-      sourceLabel: "Ena paneli Limon mail kaynagindaki 4 numarali hesap bildirimlerini izler."
+      sourceLabel: "İzleme kaynağı gizli tutuluyor."
     }
   ];
   return users.map((user) => ({
@@ -225,7 +225,7 @@ function panelMeta(account) {
     return { account: "musti", label: "Musti Paneli", theme: "musti", logo: "/musti-logo.jpeg", sourceLabel: "Musti paneli bagimsiz veri kaynagiyla calisir." };
   }
   if (account === "ena") {
-    return { account: "ena", label: "Ena Paneli", theme: "ena", logo: "/ahava-logo.jpeg", sourceLabel: "Ena paneli 4 numarali hesap bildirimlerini izler." };
+    return { account: "ena", label: "Ena Paneli", theme: "ena", logo: "/ahava-logo.jpeg", sourceLabel: "İzleme kaynağı gizli tutuluyor." };
   }
   return { account: "limon", label: "Limon Paneli", theme: "limon", logo: "/limon.svg", sourceLabel: "Veriler kalici database kaydiyla korunur." };
 }
