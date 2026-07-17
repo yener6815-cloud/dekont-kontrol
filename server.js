@@ -194,7 +194,7 @@ function buildPanelUsers() {
       name: "Ena Ahava",
       account: "ena",
       theme: "ena",
-      logo: "/logo.svg",
+      logo: "/ahava-logo.jpeg",
       sourceLabel: "Ena paneli Limon mail kaynagindaki 4 numarali hesap bildirimlerini izler."
     }
   ];
@@ -225,7 +225,7 @@ function panelMeta(account) {
     return { account: "musti", label: "Musti Paneli", theme: "musti", logo: "/musti-logo.jpeg", sourceLabel: "Musti paneli bagimsiz veri kaynagiyla calisir." };
   }
   if (account === "ena") {
-    return { account: "ena", label: "Ena Paneli", theme: "ena", logo: "/logo.svg", sourceLabel: "Ena paneli 4 numarali hesap bildirimlerini izler." };
+    return { account: "ena", label: "Ena Paneli", theme: "ena", logo: "/ahava-logo.jpeg", sourceLabel: "Ena paneli 4 numarali hesap bildirimlerini izler." };
   }
   return { account: "limon", label: "Limon Paneli", theme: "limon", logo: "/limon.svg", sourceLabel: "Veriler kalici database kaydiyla korunur." };
 }
@@ -516,6 +516,7 @@ function serveStatic(req, res, url) {
     "/logo.svg": "logo.svg",
     "/limon.svg": "limon.svg",
     "/musti-logo.jpeg": "musti-logo.jpeg",
+    "/ahava-logo.jpeg": "ahava-logo.jpeg",
     "/og-card.svg": "og-card.svg"
   };
   const file = fileMap[url.pathname];
