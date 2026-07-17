@@ -264,10 +264,12 @@ function buildMailAccounts() {
       email: process.env.MUSTI_DEKONT_MAIL || process.env.MUSTI_MAIL || "supermedya6@gmail.com",
       password: normalizeSecret(process.env.MUSTI_DEKONT_APP_PASSWORD || process.env.MUSTI_APP_PASSWORD || ""),
       requiredSlot: "2",
-      searchTerms: unique([...SEARCH_TERMS, "2 numaralı", "2 numarali", MUSTI_COMPANY_SUBJECT, "VENUS DIJITAL", "VENÜS DİJİTAL", "supermedya6"]),
-      liveSearchTerms: unique([...LIVE_SEARCH_TERMS, "2 numaralı", "2 numarali", MUSTI_COMPANY_SUBJECT, "VENUS DIJITAL", "VENÜS DİJİTAL", "supermedya6"]),
-      mailboxes: FAST_PRIMARY_MAILBOXES,
-      liveMailboxes: FAST_PRIMARY_MAILBOXES,
+      allowMissingSlotWhenDedicated: true,
+      recheckRecentEveryScan: true,
+      searchTerms: unique([...SEARCH_TERMS, "2 numaralı", "2 numarali", "2 nolu", "2 no'lu", "2 no.lu", "2 numara", MUSTI_COMPANY_SUBJECT, "VENUS DIJITAL", "VENÜS DİJİTAL", "supermedya6"]),
+      liveSearchTerms: unique([...LIVE_SEARCH_TERMS, "2 numaralı", "2 numarali", "2 nolu", "2 no'lu", "2 no.lu", "2 numara", MUSTI_COMPANY_SUBJECT, "VENUS DIJITAL", "VENÜS DİJİTAL", "supermedya6"]),
+      mailboxes: unique([...FAST_PRIMARY_MAILBOXES, "[Gmail]/All Mail", "[Gmail]/Tüm Postalar", "[Google Mail]/All Mail"]),
+      liveMailboxes: unique([...FAST_PRIMARY_MAILBOXES, "[Gmail]/All Mail", "[Gmail]/Tüm Postalar", "[Google Mail]/All Mail"]),
       includeRecentMailboxMessages: true,
       liveRecentOnly: true,
       deepLiveSearch: true
@@ -738,7 +740,7 @@ async function scanMail(source, { mode = "interval", lookbackDays }) {
     const known = new Set(state.seen);
     const routeAccounts = Array.isArray(source.routeAccounts) && source.routeAccounts.length ? source.routeAccounts : [source.account];
     const receiptKnown = new Set(routeAccounts.flatMap((routeAccount) => receiptsForAccount(routeAccount).map((r) => r.identityKey || r.id)));
-    const shouldRecheckRecent = mode === "manual" || mode === "startup";
+    const shouldRecheckRecent = mode === "manual" || mode === "startup" || Boolean(source.recheckRecentEveryScan);
     const candidateTargets = shouldRecheckRecent ? targets : targets.filter((t) => !known.has(`${source.account}:${t.mailbox}:${t.uid}`));
     const freshTargets = pickRecentTargetsByMailbox(candidateTargets, fetchLimit);
     const messages = await imap.fetchMessages(freshTargets);
@@ -908,7 +910,9 @@ function parseReceipt(uid, raw, mailbox, source = "limon") {
   const body = cleanText(`${text}\n${htmlText}` || extractText(raw));
   const searchable = normalizeSearch(`${subject}\n${from}\n${body}`);
   if (!isKuveytReceipt(searchable)) return null;
-  if (source && typeof source === "object" && source.requiredSlot && !hasReceiptSlot(searchable, source.requiredSlot)) return null;
+  if (source && typeof source === "object" && source.requiredSlot && !hasReceiptSlot(searchable, source.requiredSlot)) {
+    if (!source.allowMissingSlotWhenDedicated || hasAnyReceiptSlot(searchable)) return null;
+  }
   const routedAccount = routeReceiptAccount(account, searchable);
   if (!routedAccount) return null;
   const details = extractReceiptDetails(body);
@@ -945,7 +949,12 @@ function hasReceiptSlot(searchable, slot) {
   const compact = compactSearch(searchable);
   const number = String(slot || "").replace(/\D/g, "");
   if (!number) return false;
-  return new RegExp(`(^|[^0-9])${number}\\s*numarali\\s*hesabiniza`).test(searchable) || compact.includes(`${number}numaralihesabiniza`);
+  return (
+    new RegExp(`(^|[^0-9])${number}\\s*(numarali|numara|nolu|no[^a-z0-9]*lu)\\s*(hesabiniza|hesabiniz|hesaba|hesap)`).test(searchable) ||
+    compact.includes(`${number}numaralihesabiniza`) ||
+    compact.includes(`${number}numaralihesabiniz`) ||
+    compact.includes(`${number}nolu`)
+  );
 }
 
 function isKuveytReceipt(text) {
