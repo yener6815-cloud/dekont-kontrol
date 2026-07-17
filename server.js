@@ -32,6 +32,9 @@ const ACCOUNT_SECTIONS = {
     { key: "limon", label: "LİMON", slot: "1" },
     { key: "limon-toplam", label: "LİMON TOPLAM", slot: "3" }
   ],
+  ena: [
+    { key: "ena", label: "ENA", slot: "4" }
+  ],
   musti: [
     { key: "musti", label: "Musti" }
   ]
@@ -161,7 +164,7 @@ function buildPanelUsers() {
       name: "Ayberk Bora",
       role: "manager",
       account: "limon",
-      allowedAccounts: ["limon", "musti"],
+      allowedAccounts: ["limon", "musti", "ena"],
       canManageTotals: true,
       theme: "limon",
       logo: "/logo.svg",
@@ -184,6 +187,15 @@ function buildPanelUsers() {
       theme: "musti",
       logo: "/musti-logo.jpeg",
       sourceLabel: "Musti paneli bagimsiz veri kaynagiyla calisir."
+    },
+    {
+      username: "enaahava",
+      password: "ahavaagency00",
+      name: "Ena Ahava",
+      account: "ena",
+      theme: "ena",
+      logo: "/logo.svg",
+      sourceLabel: "Ena paneli Limon mail kaynagindaki 4 numarali hesap bildirimlerini izler."
     }
   ];
   return users.map((user) => ({
@@ -211,6 +223,9 @@ function publicUser(user) {
 function panelMeta(account) {
   if (account === "musti") {
     return { account: "musti", label: "Musti Paneli", theme: "musti", logo: "/musti-logo.jpeg", sourceLabel: "Musti paneli bagimsiz veri kaynagiyla calisir." };
+  }
+  if (account === "ena") {
+    return { account: "ena", label: "Ena Paneli", theme: "ena", logo: "/logo.svg", sourceLabel: "Ena paneli 4 numarali hesap bildirimlerini izler." };
   }
   return { account: "limon", label: "Limon Paneli", theme: "limon", logo: "/limon.svg", sourceLabel: "Veriler kalici database kaydiyla korunur." };
 }
@@ -251,6 +266,20 @@ function buildMailAccounts() {
       requiredSlot: "2",
       searchTerms: unique([...SEARCH_TERMS, "2 numaralı", "2 numarali", MUSTI_COMPANY_SUBJECT, "VENUS DIJITAL", "VENÜS DİJİTAL", "supermedya6"]),
       liveSearchTerms: unique([...LIVE_SEARCH_TERMS, "2 numaralı", "2 numarali", MUSTI_COMPANY_SUBJECT, "VENUS DIJITAL", "VENÜS DİJİTAL", "supermedya6"]),
+      mailboxes: FAST_PRIMARY_MAILBOXES,
+      liveMailboxes: FAST_PRIMARY_MAILBOXES,
+      includeRecentMailboxMessages: true,
+      liveRecentOnly: true,
+      deepLiveSearch: true
+    },
+    ena: {
+      account: "ena",
+      label: "Ena",
+      email: process.env.DEKONT_MAIL || process.env.LIMON_MAIL || "",
+      password: normalizeSecret(process.env.DEKONT_APP_PASSWORD || process.env.LIMON_APP_PASSWORD || ""),
+      requiredSlot: "4",
+      searchTerms: unique([...SEARCH_TERMS, "4 numaralı", "4 numarali"]),
+      liveSearchTerms: unique([...LIVE_SEARCH_TERMS, "4 numaralı", "4 numarali"]),
       mailboxes: FAST_PRIMARY_MAILBOXES,
       liveMailboxes: FAST_PRIMARY_MAILBOXES,
       includeRecentMailboxMessages: true,
