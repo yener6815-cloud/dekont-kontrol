@@ -39,6 +39,12 @@ const ACCOUNT_SECTIONS = {
     { key: "musti", label: "Musti" }
   ]
 };
+const MANUAL_RECEIPT_TARGETS = [
+  { key: "limon", label: "Limon", owner: "limon" },
+  { key: "limon-toplam", label: "Limon Toplam", owner: "limon" },
+  { key: "ena", label: "Ena", owner: "ena" },
+  { key: "musti", label: "Musti", owner: "musti" }
+];
 const RECEIPT_FIELD_LABELS = [
   "Gonderen Adi Soyadi",
   "Gönderen Adı Soyadı",
@@ -490,6 +496,26 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, buildPayload(user.account, user));
     }
 
+    if (req.method === "POST" && url.pathname === "/api/manual-receipts") {
+      const user = requireAuth(req, res);
+      if (!user) return;
+      if (!user.canManageTotals) {
+        return sendJson(res, 403, { error: "Sadece site yoneticisi manuel dekont ekleyebilir" });
+      }
+      const body = await readJson(req);
+      const target = resolveManualReceiptTarget(user, body.target || body.section || body.account);
+      if (!target) {
+        return sendJson(res, 400, { error: "Gecerli bir panel sec" });
+      }
+      const receipt = buildManualReceipt(body, target, user);
+      state.receipts.unshift(receipt);
+      state.receipts = sortReceipts(dedupeReceipts(state.receipts)).slice(0, MAX_STORED_RECEIPTS);
+      state.seen = unique([...(state.seen || []), receipt.identityKey]).slice(-MAX_STORED_RECEIPTS * 2);
+      saveStateNow();
+      broadcast("receipts", null, target.owner, { newReceipts: [receipt] });
+      return sendJson(res, 200, { ok: true, receipt, target, payload: buildPayload(user.account, user) });
+    }
+
     if (req.method === "POST" && url.pathname === "/api/refresh") {
       const user = requireAuth(req, res);
       if (!user) return;
@@ -505,6 +531,49 @@ const server = http.createServer(async (req, res) => {
 
 function normalizeLoginName(value) {
   return String(value || "").trim().toLocaleLowerCase("tr-TR");
+}
+
+function resolveManualReceiptTarget(user, key) {
+  const allowedAccounts = Array.isArray(user.allowedAccounts) && user.allowedAccounts.length ? user.allowedAccounts : [user.account || "limon"];
+  const allowedTargets = MANUAL_RECEIPT_TARGETS.filter((target) => allowedAccounts.includes(target.owner));
+  const selected = String(key || "").trim().toLocaleLowerCase("tr-TR");
+  return allowedTargets.find((target) => target.key === selected) || null;
+}
+
+function buildManualReceipt(body, target, user) {
+  const amount = Number(body.amount || 0) || parseAmount(body.amount);
+  if (!Number.isFinite(amount) || amount <= 0) throw new Error("Gecerli bir tutar yaz");
+  const direction = body.direction === "out" ? "out" : "in";
+  const now = new Date().toISOString();
+  const rawSender = sanitizeValue(body.sender);
+  const rawSenderBank = sanitizeValue(body.senderBank);
+  const sender = isValidSender(rawSender) ? rawSender : "Gönderen bilgisi okunuyor";
+  const senderBank = rawSenderBank || "Banka bilgisi yok";
+  const desc = sanitizeValue(body.desc || body.description) || "Aciklama yok";
+  const transactionTime = parseReceiptDate(body.transactionTime || body.time) || now;
+  const random = crypto.randomBytes(5).toString("hex");
+  const identityKey = `manual:${target.key}:${direction}:${transactionTime}:${amount.toFixed(2)}:${normalizeSearch(sender)}:${random}`;
+  const id = crypto.createHash("sha1").update(identityKey).digest("hex").slice(0, 12).toUpperCase();
+  return {
+    id,
+    account: target.key,
+    uid: `manual-${Date.now()}`,
+    mailbox: "INBOX",
+    messageId: `manual-${id}@dekont-kontrol.local`,
+    identityKey,
+    sender,
+    senderBank,
+    amount,
+    currency: "TRY",
+    desc,
+    transactionTime,
+    receivedAt: now,
+    time: shortTime(transactionTime || now),
+    status: direction === "out" ? "Çıkış yapıldı" : "Yeni geldi",
+    subject: "Kuveyt Türk Bilgilendirme",
+    direction,
+    createdBy: user.username || user.name || "manager"
+  };
 }
 
 function serveStatic(req, res, url) {
@@ -547,7 +616,7 @@ function buildPayload(account = "limon", viewer = null) {
     receipts,
     sections,
     stats: {
-      todayTotal: receipts.reduce((sum, r) => sum + Number(r.amount || 0), 0),
+      todayTotal: receipts.reduce((sum, r) => sum + signedReceiptAmount(r), 0),
       totalCount: receipts.length,
       lastScanAt: health.lastScanAt || ""
     },
@@ -607,6 +676,11 @@ function receiptsForAccount(account = "limon") {
 
 function receiptAccount(receipt) {
   return String(receipt && receipt.account ? receipt.account : "limon");
+}
+
+function signedReceiptAmount(receipt) {
+  const amount = Math.abs(Number(receipt && receipt.amount ? receipt.amount : 0));
+  return receipt && receipt.direction === "out" ? -amount : amount;
 }
 
 function sectionsForAccount(account = "limon") {

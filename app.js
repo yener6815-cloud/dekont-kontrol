@@ -43,6 +43,16 @@ const sourceLabel = document.getElementById("sourceLabel");
 const manualRefreshOverlay = document.getElementById("manualRefreshOverlay");
 const sectionSwitcher = document.getElementById("sectionSwitcher");
 const adminPresence = document.getElementById("adminPresence");
+const manualReceiptCard = document.getElementById("manualReceiptCard");
+const manualDirectionGroup = document.getElementById("manualDirectionGroup");
+const manualTargetGroup = document.getElementById("manualTargetGroup");
+const manualSenderInput = document.getElementById("manualSenderInput");
+const manualBankInput = document.getElementById("manualBankInput");
+const manualAmountInput = document.getElementById("manualAmountInput");
+const manualTimeInput = document.getElementById("manualTimeInput");
+const manualDescInput = document.getElementById("manualDescInput");
+const manualReceiptSubmit = document.getElementById("manualReceiptSubmit");
+const manualReceiptMessage = document.getElementById("manualReceiptMessage");
 
 const state = {
   user: null,
@@ -60,6 +70,7 @@ const state = {
   totalAdjustment: 0,
   presence: null,
   pendingPanels: [],
+  manualReceipt: { target: "limon", direction: "in" },
   lastReceiptRenderKey: "",
   lastStatsRenderKey: ""
 };
@@ -226,16 +237,17 @@ function applyPayload(payload, mode = "normal", newReceipts = []) {
 }
 
 function receiptCollectionKey(receipts) {
-  return (receipts || []).map((item) => `${item.id}:${item.account || ""}:${item.status || ""}:${item.amount || 0}`).join("|");
+  return (receipts || []).map((item) => `${item.id}:${item.account || ""}:${item.status || ""}:${item.direction || ""}:${item.amount || 0}`).join("|");
 }
 
 function renderAll({ receiptsChanged = true } = {}) {
   const sectionReceipts = receiptsForActiveSection();
-  const sectionTotal = sectionReceipts.reduce((sum, receipt) => sum + Number(receipt.amount || 0), 0);
+  const sectionTotal = sectionReceipts.reduce((sum, receipt) => sum + signedReceiptAmount(receipt), 0);
   todayTotal.textContent = money(sectionTotal + Number(state.totalAdjustment || 0));
   totalCount.textContent = String(sectionReceipts.length || 0);
   renderSectionSwitcher();
   renderAdminControls();
+  renderManualReceiptControls();
   renderTotalUpdateNotice();
   renderPresence();
   renderStatusOnly();
@@ -269,6 +281,19 @@ function renderAdminControls() {
   if (!canManage && totalAdjustMessage && !totalAdjustMessage.textContent) {
     totalAdjustMessage.textContent = "Sadece site yöneticisi değiştirebilir.";
   }
+}
+
+function renderManualReceiptControls() {
+  if (!manualReceiptCard) return;
+  const canManage = Boolean(state.user && state.user.canManageTotals);
+  manualReceiptCard.classList.toggle("hidden", !canManage);
+  if (!canManage) return;
+  manualDirectionGroup?.querySelectorAll("[data-manual-direction]").forEach((button) => {
+    button.classList.toggle("active", button.dataset.manualDirection === state.manualReceipt.direction);
+  });
+  manualTargetGroup?.querySelectorAll("[data-manual-target]").forEach((button) => {
+    button.classList.toggle("active", button.dataset.manualTarget === state.manualReceipt.target);
+  });
 }
 
 function renderTotalUpdateNotice() {
@@ -382,18 +407,19 @@ function renderReceipts() {
     receiptList.innerHTML = `<div class="empty-state">Dekont bekleniyor. Mail geldigi anda burada gorunecek.</div>`;
   } else {
     receiptList.innerHTML = pageItems.map((receipt) => `
-      <article class="receipt-card ${receipt.id === newestId ? "latest" : ""}">
+      <article class="receipt-card ${receipt.id === newestId ? "latest" : ""} ${receipt.direction === "out" ? "outgoing" : ""}">
         <div class="receipt-main">
           <div class="receipt-title-row">
             <strong>${escapeHtml(receipt.sender || "Belirtilmedi")}</strong>
             ${receipt.id === newestId ? `<span class="new-badge">Son gelen</span>` : ""}
+            ${receipt.direction === "out" ? `<span class="out-badge">Çıkış yapıldı</span>` : ""}
           </div>
           <p>${escapeHtml(receipt.desc || "Aciklama yok")}</p>
           <small>Gonderen bankasi: ${escapeHtml(receipt.senderBank || "Banka bilgisi yok")}</small>
           <small>Islem zamani: ${escapeHtml(shortDate(receipt.transactionTime || receipt.receivedAt))}</small>
         </div>
         <div class="receipt-side">
-          <strong>${money(receipt.amount)}</strong>
+          <strong>${receipt.direction === "out" ? "-" : ""}${money(receipt.amount)}</strong>
           <span>${escapeHtml(receipt.id)}</span>
         </div>
       </article>`).join("");
@@ -409,8 +435,13 @@ function visibleRenderKey(pageItems = null, totalPages = null, newestId = "") {
     pageCount,
     normalize(state.search),
     newestId || (getVisibleReceipts()[0] && getVisibleReceipts()[0].id) || "",
-    list.map((receipt) => `${receipt.id}:${receipt.amount}:${receipt.sender}:${receipt.senderBank}:${receipt.transactionTime}:${receipt.desc}`).join("|")
+    list.map((receipt) => `${receipt.id}:${receipt.amount}:${receipt.direction || ""}:${receipt.sender}:${receipt.senderBank}:${receipt.transactionTime}:${receipt.desc}`).join("|")
   ].join("::");
+}
+
+function signedReceiptAmount(receipt) {
+  const amount = Math.abs(Number(receipt && receipt.amount ? receipt.amount : 0));
+  return receipt && receipt.direction === "out" ? -amount : amount;
 }
 
 function showReceiptToast(receipt) {
@@ -480,7 +511,7 @@ async function applyTotalAdjustment(action) {
     return;
   }
 
-  const receiptTotal = receiptsForActiveSection().reduce((sum, receipt) => sum + Number(receipt.amount || 0), 0);
+  const receiptTotal = receiptsForActiveSection().reduce((sum, receipt) => sum + signedReceiptAmount(receipt), 0);
   if (action === "add") {
     state.totalAdjustment = Number(state.totalAdjustment || 0) + amount;
   } else if (action === "subtract") {
@@ -644,6 +675,67 @@ totalAddButton.addEventListener("click", () => applyTotalAdjustment("add"));
 totalSubtractButton.addEventListener("click", () => applyTotalAdjustment("subtract"));
 totalSetButton.addEventListener("click", () => applyTotalAdjustment("set"));
 totalAdjustInput.addEventListener("input", () => { totalAdjustMessage.textContent = ""; });
+
+manualDirectionGroup?.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-manual-direction]");
+  if (!button) return;
+  state.manualReceipt.direction = button.dataset.manualDirection === "out" ? "out" : "in";
+  renderManualReceiptControls();
+});
+
+manualTargetGroup?.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-manual-target]");
+  if (!button) return;
+  state.manualReceipt.target = button.dataset.manualTarget || "limon";
+  renderManualReceiptControls();
+});
+
+manualReceiptSubmit?.addEventListener("click", async () => {
+  if (!state.user?.canManageTotals) {
+    manualReceiptMessage.textContent = "Sadece site yöneticisi manuel dekont ekleyebilir.";
+    return;
+  }
+  const amount = parseMoney(manualAmountInput?.value || "");
+  if (!amount) {
+    manualReceiptMessage.textContent = "Gecerli bir tutar yaz.";
+    manualAmountInput?.focus();
+    return;
+  }
+  manualReceiptSubmit.disabled = true;
+  manualReceiptMessage.textContent = state.manualReceipt.direction === "out" ? "Cikis kaydi ekleniyor..." : "Dekont ekleniyor...";
+  try {
+    const response = await api("/api/manual-receipts", {
+      method: "POST",
+      body: JSON.stringify({
+        target: state.manualReceipt.target,
+        direction: state.manualReceipt.direction,
+        sender: manualSenderInput?.value || "",
+        senderBank: manualBankInput?.value || "",
+        amount,
+        transactionTime: manualTimeInput?.value || "",
+        desc: manualDescInput?.value || ""
+      })
+    });
+    if (response.payload) applyPayload(response.payload, "silent");
+    clearManualReceiptForm();
+    const targetLabel = state.manualReceipt.target === "limon-toplam" ? "Limon Toplam" : state.manualReceipt.target === "ena" ? "Ena" : state.manualReceipt.target === "musti" ? "Musti" : "Limon";
+    manualReceiptMessage.textContent = `${targetLabel} paneline ${state.manualReceipt.direction === "out" ? "cikis kaydi" : "dekont"} eklendi.`;
+  } catch (error) {
+    manualReceiptMessage.textContent = error.message || "Dekont eklenemedi.";
+  } finally {
+    manualReceiptSubmit.disabled = false;
+  }
+});
+
+[manualSenderInput, manualBankInput, manualAmountInput, manualTimeInput, manualDescInput].forEach((input) => {
+  input?.addEventListener("input", () => { if (manualReceiptMessage) manualReceiptMessage.textContent = ""; });
+});
+
+function clearManualReceiptForm() {
+  [manualSenderInput, manualBankInput, manualAmountInput, manualTimeInput, manualDescInput].forEach((input) => {
+    if (input) input.value = "";
+  });
+}
 
 setInterval(() => {
   clockText.textContent = new Intl.DateTimeFormat("tr-TR", { hour: "2-digit", minute: "2-digit", second: "2-digit", timeZone: "Europe/Istanbul" }).format(new Date());

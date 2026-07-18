@@ -154,6 +154,35 @@
       </div>
     </section>
 
+    <section class="manual-receipt-card hidden" id="manualReceiptCard">
+      <div class="manual-receipt-head">
+        <div>
+          <p class="eyebrow">YONETICI ISLEMI</p>
+          <h3>Manuel dekont ekle</h3>
+          <small>Mail gelmediyse dekontu ayni panel formatinda ekleyebilirsin.</small>
+        </div>
+        <div class="manual-direction" id="manualDirectionGroup">
+          <button class="manual-pill active" type="button" data-manual-direction="in">+ Giriş</button>
+          <button class="manual-pill danger" type="button" data-manual-direction="out">- Çıkış</button>
+        </div>
+      </div>
+      <div class="manual-receipt-grid">
+        <label>Gönderen ismi<input id="manualSenderInput" placeholder="Ad soyad / ünvan"></label>
+        <label>Gönderen bankası<input id="manualBankInput" placeholder="Banka adı"></label>
+        <label>Tutar<input id="manualAmountInput" inputmode="decimal" placeholder="Tutar"></label>
+        <label>İşlem zamanı<input id="manualTimeInput" type="datetime-local"></label>
+        <label class="manual-full">Açıklama<input id="manualDescInput" placeholder="Açıklama"></label>
+      </div>
+      <div class="manual-targets" id="manualTargetGroup" aria-label="Dekont hedef paneli">
+        <button class="manual-target active" type="button" data-manual-target="limon">Limon</button>
+        <button class="manual-target" type="button" data-manual-target="limon-toplam">Limon Toplam</button>
+        <button class="manual-target" type="button" data-manual-target="ena">Ena</button>
+        <button class="manual-target" type="button" data-manual-target="musti">Musti</button>
+      </div>
+      <button class="manual-submit" id="manualReceiptSubmit" type="button">Dekontu ekle</button>
+      <small id="manualReceiptMessage"></small>
+    </section>
+
     <section class="tools-row">
       <div class="search-wrap"><span>⌕</span><input id="searchInput" placeholder="Gonderen, tutar veya aciklama ara"></div>
       <button class="refresh-button" id="refreshButton" type="button">Manuel yenile</button>
