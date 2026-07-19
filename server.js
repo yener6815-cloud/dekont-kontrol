@@ -550,7 +550,7 @@ function buildManualReceipt(body, target, user) {
   const sender = isValidSender(rawSender) ? rawSender : "Gönderen bilgisi okunuyor";
   const senderBank = rawSenderBank || "Banka bilgisi yok";
   const desc = sanitizeValue(body.desc || body.description) || "Aciklama yok";
-  const transactionTime = parseReceiptDate(body.transactionTime || body.time) || now;
+  const transactionTime = parseManualReceiptDate(body.transactionTime || body.time) || now;
   const random = crypto.randomBytes(5).toString("hex");
   const identityKey = `manual:${target.key}:${direction}:${transactionTime}:${amount.toFixed(2)}:${normalizeSearch(sender)}:${random}`;
   const id = crypto.createHash("sha1").update(identityKey).digest("hex").slice(0, 12).toUpperCase();
@@ -1502,6 +1502,17 @@ function parseReceiptDate(value) {
   const [, day, month, year, hour = "0", minute = "0", second = "0"] = match;
   const iso = `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}T${hour.padStart(2, "0")}:${minute.padStart(2, "0")}:${second.padStart(2, "0")}+03:00`;
   return parseDate(iso);
+}
+
+function parseManualReceiptDate(value) {
+  const text = String(value || "").trim();
+  if (!text) return "";
+  const localMatch = text.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?$/);
+  if (localMatch) {
+    const [, year, month, day, hour, minute, second = "0"] = localMatch;
+    return parseDate(`${year}-${month}-${day}T${hour}:${minute}:${second.padStart(2, "0")}+03:00`);
+  }
+  return parseReceiptDate(text);
 }
 
 function shortTime(value) {
