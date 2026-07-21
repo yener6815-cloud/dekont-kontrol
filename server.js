@@ -5,20 +5,25 @@ const tls = require("tls");
 const crypto = require("crypto");
 
 const ROOT = __dirname;
+const ENV_FILE = path.join(ROOT, ".env");
+
+loadEnv();
+
 const DATA_DIR = path.join(ROOT, "data");
 const LEGACY_DATA_FILE = path.join(DATA_DIR, "receipts.json");
-const PERSISTENT_DATA_DIR = process.env.RENDER ? "/var/data" : DATA_DIR;
+const PERSISTENT_DATA_DIR = process.env.PERSISTENT_DATA_DIR || (process.env.RENDER ? "/var/data" : DATA_DIR);
 const DATA_FILE = process.env.DATABASE_FILE || path.join(PERSISTENT_DATA_DIR, "database.json");
 const PORT = Number(process.env.PORT || 10000);
 const PUBLIC_BASE_URL = String(process.env.PUBLIC_BASE_URL || "").replace(/\/$/, "");
 const SCAN_INTERVAL_MS = clamp(process.env.SCAN_INTERVAL_MS, 1000, 1000, 10000);
 const SCAN_LOOKBACK_DAYS = clamp(process.env.SCAN_LOOKBACK_DAYS, 30, 1, 180);
+const STARTUP_SCAN_LOOKBACK_DAYS = clamp(process.env.STARTUP_SCAN_LOOKBACK_DAYS, 180, SCAN_LOOKBACK_DAYS, 365);
 const MANUAL_SCAN_LOOKBACK_DAYS = clamp(process.env.MANUAL_SCAN_LOOKBACK_DAYS, 120, 1, 365);
 const HOT_SCAN_LOOKBACK_HOURS = clamp(process.env.HOT_SCAN_LOOKBACK_HOURS, 48, 1, 168);
 const LIVE_FETCH_PER_SCAN = clamp(process.env.LIVE_FETCH_PER_SCAN, 80, 20, 300);
 const MAILBOX_RECENT_FETCH_LIMIT = clamp(process.env.MAILBOX_RECENT_FETCH_LIMIT, 260, 20, 1000);
-const MAX_STORED_RECEIPTS = clamp(process.env.MAX_STORED_RECEIPTS, 3000, 100, 25000);
-const MAX_FETCH_PER_SCAN = clamp(process.env.MAX_FETCH_PER_SCAN, 1000, 20, 2000);
+const MAX_STORED_RECEIPTS = clamp(process.env.MAX_STORED_RECEIPTS, 5000, 100, 25000);
+const MAX_FETCH_PER_SCAN = clamp(process.env.MAX_FETCH_PER_SCAN, 2000, 20, 5000);
 const SESSION_TTL_MS = 12 * 60 * 60 * 1000;
 const PRIMARY_MAILBOXES = unique((process.env.PRIMARY_MAILBOXES || "INBOX").split(",").map((x) => x.trim()).filter(Boolean));
 const RECEIPT_MAILBOXES = unique((process.env.RECEIPT_MAILBOXES || "[Gmail]/All Mail,[Gmail]/Tüm Postalar,[Google Mail]/All Mail,[Gmail]/Updates,[Gmail]/Guncellemeler,[Gmail]/Categories/Promotions,[Gmail]/Categories/Social,[Gmail]/Kategoriler/Tanıtımlar,[Gmail]/Kategoriler/Sosyal,[Gmail]/Promotions,[Gmail]/Social,[Gmail]/Spam,[Gmail]/Gereksiz,[Gmail]/Junk,INBOX").split(",").map((x) => x.trim()).filter(Boolean));
@@ -150,6 +155,20 @@ const scanBusyAccounts = new Set();
 const pendingScanRequests = new Map();
 const scanTimers = [];
 let saveTimer = null;
+
+function loadEnv() {
+  if (!fs.existsSync(ENV_FILE)) return;
+  const lines = fs.readFileSync(ENV_FILE, "utf8").split(/\r?\n/);
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) continue;
+    const separator = trimmed.indexOf("=");
+    if (separator < 1) continue;
+    const key = trimmed.slice(0, separator).trim();
+    const value = trimmed.slice(separator + 1).trim().replace(/^(["'])(.*)\1$/, "$2");
+    if (!process.env[key]) process.env[key] = value;
+  }
+}
 let state = loadState();
 
 function clamp(value, fallback, min, max) {
@@ -723,7 +742,7 @@ function startScanLoop() {
   Object.keys(MAIL_ACCOUNTS).forEach((account, index) => {
     let firstRun = true;
     const run = async () => {
-      await triggerScan(account, firstRun ? "startup" : "interval", firstRun ? SCAN_LOOKBACK_DAYS : null);
+      await triggerScan(account, firstRun ? "startup" : "interval", firstRun ? STARTUP_SCAN_LOOKBACK_DAYS : null);
       firstRun = false;
       scanTimers[index] = setTimeout(run, SCAN_INTERVAL_MS);
     };
@@ -799,8 +818,7 @@ async function scanMail(source, { mode = "interval", lookbackDays }) {
     throw new Error("Mail bilgileri eksik. DEKONT_MAIL ve DEKONT_APP_PASSWORD gerekli.");
   }
   const imap = new ImapClient(source.email, source.password);
-  const hasHistory = receiptsForAccount(source.account).length > 0;
-  const fullScan = mode === "manual" || (mode === "startup" && !hasHistory);
+  const fullScan = mode === "manual" || mode === "startup";
   const since = fullScan
     ? new Date(Date.now() - (lookbackDays || SCAN_LOOKBACK_DAYS) * 24 * 60 * 60 * 1000)
     : new Date(Date.now() - HOT_SCAN_LOOKBACK_HOURS * 60 * 60 * 1000);
