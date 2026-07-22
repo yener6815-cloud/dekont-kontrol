@@ -15,7 +15,7 @@ const PERSISTENT_DATA_DIR = process.env.PERSISTENT_DATA_DIR || (process.env.REND
 const DATA_FILE = process.env.DATABASE_FILE || path.join(PERSISTENT_DATA_DIR, "database.json");
 const PORT = Number(process.env.PORT || 10000);
 const PUBLIC_BASE_URL = String(process.env.PUBLIC_BASE_URL || "").replace(/\/$/, "");
-const SCAN_INTERVAL_MS = clamp(process.env.SCAN_INTERVAL_MS, 1000, 1000, 10000);
+const SCAN_INTERVAL_MS = clamp(process.env.SCAN_INTERVAL_MS, 5000, 3000, 30000);
 const SCAN_LOOKBACK_DAYS = clamp(process.env.SCAN_LOOKBACK_DAYS, 30, 1, 180);
 const STARTUP_SCAN_LOOKBACK_DAYS = clamp(process.env.STARTUP_SCAN_LOOKBACK_DAYS, 180, SCAN_LOOKBACK_DAYS, 365);
 const MANUAL_SCAN_LOOKBACK_DAYS = clamp(process.env.MANUAL_SCAN_LOOKBACK_DAYS, 120, 1, 365);
@@ -24,7 +24,45 @@ const LIVE_FETCH_PER_SCAN = clamp(process.env.LIVE_FETCH_PER_SCAN, 80, 20, 300);
 const MAILBOX_RECENT_FETCH_LIMIT = clamp(process.env.MAILBOX_RECENT_FETCH_LIMIT, 260, 20, 1000);
 const MAX_STORED_RECEIPTS = clamp(process.env.MAX_STORED_RECEIPTS, 5000, 100, 25000);
 const MAX_FETCH_PER_SCAN = clamp(process.env.MAX_FETCH_PER_SCAN, 2000, 20, 5000);
+const IMAP_CONNECT_TIMEOUT_MS = clamp(process.env.IMAP_CONNECT_TIMEOUT_MS, 30000, 10000, 120000);
+const IMAP_COMMAND_TIMEOUT_MS = clamp(process.env.IMAP_COMMAND_TIMEOUT_MS, 90000, 30000, 300000);
+const IMAP_FETCH_TIMEOUT_MS = clamp(process.env.IMAP_FETCH_TIMEOUT_MS, 180000, 60000, 600000);
+const IMAP_SOCKET_IDLE_TIMEOUT_MS = clamp(process.env.IMAP_SOCKET_IDLE_TIMEOUT_MS, 240000, 60000, 600000);
+const IMAP_RETRY_ATTEMPTS = clamp(process.env.IMAP_RETRY_ATTEMPTS, 3, 1, 5);
+const IMAP_RETRY_BASE_DELAY_MS = clamp(process.env.IMAP_RETRY_BASE_DELAY_MS, 1000, 250, 10000);
+const IMAP_FETCH_BATCH_SIZE = clamp(process.env.IMAP_FETCH_BATCH_SIZE, 10, 1, 25);
 const SESSION_TTL_MS = 12 * 60 * 60 * 1000;
+
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isTransientImapError(error) {
+  const message = String(error && error.message ? error.message : error).toLowerCase();
+  return /zaman asimi|timeout|timed out|econnreset|econnrefused|etimedout|ehostunreach|enetunreach|epipe|socket|tls|connection|baglanti|closed|unexpected eof/.test(message);
+}
+
+async function withImapRetry(label, operation) {
+  let lastError = null;
+  for (let attempt = 1; attempt <= IMAP_RETRY_ATTEMPTS; attempt += 1) {
+    try {
+      return await operation(attempt);
+    } catch (error) {
+      lastError = error;
+      if (!isTransientImapError(error) || attempt === IMAP_RETRY_ATTEMPTS) throw error;
+      const waitMs = IMAP_RETRY_BASE_DELAY_MS * (2 ** (attempt - 1)) + Math.floor(Math.random() * 300);
+      console.warn(`[imap] ${label} gecici olarak aksadi; ${attempt + 1}. deneme ${waitMs} ms sonra yapilacak.`);
+      await delay(waitMs);
+    }
+  }
+  throw lastError || new Error("IMAP islemi tamamlanamadi.");
+}
+
+function chunkItems(items, size) {
+  const chunks = [];
+  for (let index = 0; index < items.length; index += size) chunks.push(items.slice(index, index + size));
+  return chunks;
+}
 const PRIMARY_MAILBOXES = unique((process.env.PRIMARY_MAILBOXES || "INBOX").split(",").map((x) => x.trim()).filter(Boolean));
 const RECEIPT_MAILBOXES = unique((process.env.RECEIPT_MAILBOXES || "[Gmail]/All Mail,[Gmail]/Tüm Postalar,[Google Mail]/All Mail,[Gmail]/Updates,[Gmail]/Guncellemeler,[Gmail]/Categories/Promotions,[Gmail]/Categories/Social,[Gmail]/Kategoriler/Tanıtımlar,[Gmail]/Kategoriler/Sosyal,[Gmail]/Promotions,[Gmail]/Social,[Gmail]/Spam,[Gmail]/Gereksiz,[Gmail]/Junk,INBOX").split(",").map((x) => x.trim()).filter(Boolean));
 const LIVE_RECEIPT_MAILBOXES = unique((process.env.LIVE_RECEIPT_MAILBOXES || "INBOX,[Gmail]/Categories/Social,[Gmail]/Kategoriler/Sosyal,[Gmail]/Social,[Gmail]/Updates,[Gmail]/Guncellemeler,[Gmail]/All Mail,[Gmail]/Tüm Postalar,[Google Mail]/All Mail").split(",").map((x) => x.trim()).filter(Boolean));
@@ -272,11 +310,11 @@ function buildMailAccounts() {
     limon: {
       account: "limon",
       label: "Limon",
-      routeAccounts: ["limon", "limon-toplam"],
+      routeAccounts: ["limon", "limon-toplam", "ena"],
       email: process.env.DEKONT_MAIL || process.env.LIMON_MAIL || "",
       password: normalizeSecret(process.env.DEKONT_APP_PASSWORD || process.env.LIMON_APP_PASSWORD || ""),
-      searchTerms: unique([...SEARCH_TERMS, "1 numaralı", "1 numarali", "3 numaralı", "3 numarali"]),
-      liveSearchTerms: unique([...LIVE_SEARCH_TERMS, "1 numaralı", "1 numarali", "3 numaralı", "3 numarali"]),
+      searchTerms: unique([...SEARCH_TERMS, "1 numaralı", "1 numarali", "3 numaralı", "3 numarali", "4 numaralı", "4 numarali"]),
+      liveSearchTerms: unique([...LIVE_SEARCH_TERMS, "1 numaralı", "1 numarali", "3 numaralı", "3 numarali", "4 numaralı", "4 numarali"]),
       mailboxes: FAST_PRIMARY_MAILBOXES,
       liveMailboxes: FAST_PRIMARY_MAILBOXES,
       includeRecentMailboxMessages: true,
@@ -738,8 +776,28 @@ function broadcast(type, payload = null, account = null, extras = {}) {
   }
 }
 
+function scanSourceAccount(account) {
+  if (account !== "ena") return account;
+  const ena = MAIL_ACCOUNTS.ena;
+  const limon = MAIL_ACCOUNTS.limon;
+  return ena && limon && ena.email === limon.email && ena.password === limon.password ? "limon" : account;
+}
+
+function linkedScanAccounts(account) {
+  if (account === "limon" && scanSourceAccount("ena") === "limon") return ["limon", "ena"];
+  return [account];
+}
+
+function newReceiptCountForPanel(account, receipts) {
+  if (account === "limon") {
+    return receipts.filter((receipt) => receipt.account === "limon" || receipt.account === "limon-toplam").length;
+  }
+  return receipts.filter((receipt) => receipt.account === account).length;
+}
+
 function startScanLoop() {
-  Object.keys(MAIL_ACCOUNTS).forEach((account, index) => {
+  const scannerAccounts = unique(Object.keys(MAIL_ACCOUNTS).map(scanSourceAccount));
+  scannerAccounts.forEach((account, index) => {
     let firstRun = true;
     const run = async () => {
       await triggerScan(account, firstRun ? "startup" : "interval", firstRun ? STARTUP_SCAN_LOOKBACK_DAYS : null);
@@ -751,18 +809,22 @@ function startScanLoop() {
 }
 
 async function triggerScan(account = "limon", mode = "interval", lookbackDays = SCAN_LOOKBACK_DAYS) {
+  account = scanSourceAccount(account);
   const source = MAIL_ACCOUNTS[account];
+  const linkedAccounts = linkedScanAccounts(account);
   if (!source) return;
   if (!source.email || !source.password) {
-    setAccountHealth(account, {
-      status: "idle",
-      message: "Mail kaynagi bekleniyor",
-      lastScanAt: new Date().toISOString(),
-      mailAddress: "",
-      mailConfigured: false,
-      newCount: 0
-    });
-    broadcast("status", null, account);
+    for (const linkedAccount of linkedAccounts) {
+      setAccountHealth(linkedAccount, {
+        status: "idle",
+        message: "Mail kaynagi bekleniyor",
+        lastScanAt: new Date().toISOString(),
+        mailAddress: "",
+        mailConfigured: false,
+        newCount: 0
+      });
+      broadcast("status", null, linkedAccount);
+    }
     scheduleSave();
     return;
   }
@@ -771,26 +833,40 @@ async function triggerScan(account = "limon", mode = "interval", lookbackDays = 
     return;
   }
   scanBusyAccounts.add(account);
-  setAccountHealth(account, { ...getAccountHealth(account), status: "scanning", message: "Son dekontlar okunuyor", startedAt: new Date().toISOString() });
-  broadcast("status", null, account);
+  for (const linkedAccount of linkedAccounts) {
+    setAccountHealth(linkedAccount, { ...getAccountHealth(linkedAccount), status: "scanning", message: "Son dekontlar okunuyor", startedAt: new Date().toISOString() });
+    broadcast("status", null, linkedAccount);
+  }
   try {
     const result = await scanMail(source, { mode, lookbackDays });
-    setAccountHealth(account, {
-      status: "ok",
-      message: result.newReceipts.length ? `${result.newReceipts.length} yeni dekont eklendi` : "Dekont okuma tamamlandi",
-      lastScanAt: new Date().toISOString(),
-      scannedCandidates: result.candidates,
-      processedCandidates: result.processed,
-      skippedCandidates: result.skipped,
-      mailAddress: maskEmail(source.email),
-      mailConfigured: true,
-      newCount: result.newReceipts.length
-    });
+    for (const linkedAccount of linkedAccounts) {
+      const newCount = newReceiptCountForPanel(linkedAccount, result.newReceipts);
+      setAccountHealth(linkedAccount, {
+        status: "ok",
+        message: newCount ? `${newCount} yeni dekont eklendi` : "Dekont okuma tamamlandi",
+        lastScanAt: new Date().toISOString(),
+        scannedCandidates: result.candidates,
+        processedCandidates: result.processed,
+        skippedCandidates: result.skipped,
+        mailAddress: maskEmail(source.email),
+        mailConfigured: true,
+        newCount
+      });
+      broadcast(newCount ? "receipts" : "status", null, linkedAccount, { newReceipts: result.newReceipts.filter((receipt) => linkedAccount === "limon" ? receipt.account === "limon" || receipt.account === "limon-toplam" : receipt.account === linkedAccount) });
+    }
     scheduleSave();
-    broadcast("receipts", null, account, { newReceipts: result.newReceipts });
   } catch (error) {
-    setAccountHealth(account, { status: "error", message: sanitizeError(error), lastScanAt: new Date().toISOString(), mailAddress: maskEmail(source.email), mailConfigured: true });
-    broadcast("status", null, account);
+    const transient = isTransientImapError(error);
+    for (const linkedAccount of linkedAccounts) {
+      setAccountHealth(linkedAccount, {
+        status: transient ? "recovering" : "error",
+        message: transient ? "Mail baglantisi yenileniyor; son basarili veriler korunuyor." : sanitizeError(error),
+        lastScanAt: new Date().toISOString(),
+        mailAddress: maskEmail(source.email),
+        mailConfigured: true
+      });
+      broadcast("status", null, linkedAccount);
+    }
     scheduleSave();
   } finally {
     scanBusyAccounts.delete(account);
@@ -817,7 +893,6 @@ async function scanMail(source, { mode = "interval", lookbackDays }) {
   if (!source.email || !source.password) {
     throw new Error("Mail bilgileri eksik. DEKONT_MAIL ve DEKONT_APP_PASSWORD gerekli.");
   }
-  const imap = new ImapClient(source.email, source.password);
   const fullScan = mode === "manual" || mode === "startup";
   const since = fullScan
     ? new Date(Date.now() - (lookbackDays || SCAN_LOOKBACK_DAYS) * 24 * 60 * 60 * 1000)
@@ -826,44 +901,64 @@ async function scanMail(source, { mode = "interval", lookbackDays }) {
     ? { mailboxes: source.mailboxes || RECEIPT_MAILBOXES, terms: source.searchTerms || SEARCH_TERMS, includeRecentMailboxMessages: source.includeRecentMailboxMessages }
     : { mailboxes: source.liveMailboxes || LIVE_RECEIPT_MAILBOXES, terms: source.liveSearchTerms || LIVE_SEARCH_TERMS, subjectOnly: !source.deepLiveSearch, includeRecentMailboxMessages: source.includeRecentMailboxMessages, recentOnly: source.liveRecentOnly };
   const fetchLimit = fullScan ? MAX_FETCH_PER_SCAN : LIVE_FETCH_PER_SCAN;
-  await imap.connect();
-  try {
-    await imap.login();
-    const targets = await imap.searchReceiptCandidatesSince(since, searchOptions);
-    const known = new Set(state.seen);
-    const routeAccounts = Array.isArray(source.routeAccounts) && source.routeAccounts.length ? source.routeAccounts : [source.account];
-    const receiptKnown = new Set(routeAccounts.flatMap((routeAccount) => receiptsForAccount(routeAccount).map((r) => r.identityKey || r.id)));
-    const shouldRecheckRecent = mode === "manual" || mode === "startup" || Boolean(source.recheckRecentEveryScan);
-    const candidateTargets = shouldRecheckRecent ? targets : targets.filter((t) => !known.has(`${source.account}:${t.mailbox}:${t.uid}`));
-    const freshTargets = pickRecentTargetsByMailbox(candidateTargets, fetchLimit);
-    const messages = await imap.fetchMessages(freshTargets);
-    const newReceipts = [];
-    let processed = 0;
-    let skipped = 0;
-    for (const message of messages) {
-      processed += 1;
-      const key = `${source.account}:${message.mailbox}:${message.uid}`;
-      state.seen.push(key);
-      const parsed = parseReceipt(message.uid, message.raw, message.mailbox, source);
-      if (!parsed) {
-        skipped += 1;
-        continue;
-      }
-      if (receiptKnown.has(parsed.identityKey) || receiptKnown.has(parsed.id)) continue;
-      receiptKnown.add(parsed.identityKey);
-      receiptKnown.add(parsed.id);
-      state.receipts.unshift(parsed);
-      newReceipts.push(parsed);
+
+  const targets = await withImapRetry(`[${source.account}] dekont aramasi`, async () => {
+    const searchClient = new ImapClient(source.email, source.password);
+    try {
+      await searchClient.connect();
+      await searchClient.login();
+      return await searchClient.searchReceiptCandidatesSince(since, {
+        ...searchOptions,
+        recentLimit: Math.max(fetchLimit, MAILBOX_RECENT_FETCH_LIMIT)
+      });
+    } finally {
+      searchClient.close();
     }
-    state.seen = unique(state.seen).slice(-MAX_STORED_RECEIPTS * 2);
-    state.receipts = sortReceipts(dedupeReceipts(state.receipts)).slice(0, MAX_STORED_RECEIPTS);
-    if (newReceipts.length) {
-      saveStateNow();
+  });
+
+  const known = new Set(state.seen);
+  const routeAccounts = Array.isArray(source.routeAccounts) && source.routeAccounts.length ? source.routeAccounts : [source.account];
+  const receiptKnown = new Set(routeAccounts.flatMap((routeAccount) => receiptsForAccount(routeAccount).map((r) => r.identityKey || r.id)));
+  const shouldRecheckRecent = mode === "manual" || mode === "startup" || Boolean(source.recheckRecentEveryScan);
+  const candidateTargets = shouldRecheckRecent ? targets : targets.filter((t) => !known.has(`${source.account}:${t.mailbox}:${t.uid}`));
+  const freshTargets = pickRecentTargetsByMailbox(candidateTargets, fetchLimit);
+  const messages = freshTargets.length
+    ? await withImapRetry(`[${source.account}] dekont indirme`, async () => {
+        const fetchClient = new ImapClient(source.email, source.password);
+        try {
+          await fetchClient.connect();
+          await fetchClient.login();
+          return await fetchClient.fetchMessages(freshTargets);
+        } finally {
+          fetchClient.close();
+        }
+      })
+    : [];
+
+  const newReceipts = [];
+  let processed = 0;
+  let skipped = 0;
+  for (const message of messages) {
+    processed += 1;
+    const key = `${source.account}:${message.mailbox}:${message.uid}`;
+    state.seen.push(key);
+    const parsed = parseReceipt(message.uid, message.raw, message.mailbox, source);
+    if (!parsed) {
+      skipped += 1;
+      continue;
     }
-    return { candidates: targets.length, processed, skipped, newReceipts };
-  } finally {
-    imap.close();
+    if (receiptKnown.has(parsed.identityKey) || receiptKnown.has(parsed.id)) continue;
+    receiptKnown.add(parsed.identityKey);
+    receiptKnown.add(parsed.id);
+    state.receipts.unshift(parsed);
+    newReceipts.push(parsed);
   }
+  state.seen = unique(state.seen).slice(-MAX_STORED_RECEIPTS * 2);
+  state.receipts = sortReceipts(dedupeReceipts(state.receipts)).slice(0, MAX_STORED_RECEIPTS);
+  if (newReceipts.length) {
+    saveStateNow();
+  }
+  return { candidates: targets.length, processed, skipped, newReceipts };
 }
 
 function pickRecentTargetsByMailbox(targets, limit) {
@@ -893,18 +988,40 @@ class ImapClient {
   }
   connect() {
     return new Promise((resolve, reject) => {
+      let settled = false;
+      const finishResolve = () => {
+        if (!settled) {
+          settled = true;
+          resolve();
+        }
+      };
+      const finishReject = (error) => {
+        if (!settled) {
+          settled = true;
+          reject(error);
+        }
+      };
       this.socket = tls.connect({ host: this.host, port: this.port, servername: this.host, rejectUnauthorized: true }, () => {
-        this.readUntil((text) => /^\* OK/im.test(text), 15000).then(resolve).catch(reject);
+        this.readUntil((text) => /^\* OK/im.test(text), IMAP_CONNECT_TIMEOUT_MS).then(finishResolve).catch(finishReject);
       });
       this.socket.on("data", (chunk) => { this.buffer = Buffer.concat([this.buffer, chunk]); this.flushWaiter(); });
-      this.socket.on("error", reject);
-      this.socket.setTimeout(45000, () => { reject(new Error("IMAP zaman asimi")); this.close(); });
+      this.socket.on("error", (error) => {
+        this.rejectWaiter(error);
+        finishReject(error);
+      });
+      this.socket.on("close", () => this.rejectWaiter(new Error("IMAP baglantisi kapandi")));
+      this.socket.setTimeout(IMAP_SOCKET_IDLE_TIMEOUT_MS, () => {
+        const error = new Error("IMAP baglantisi zaman asimina ugradi");
+        this.rejectWaiter(error);
+        finishReject(error);
+        this.close();
+      });
     });
   }
-  async login() { await this.command(`LOGIN ${quoteImap(this.email)} ${quoteImap(this.password)}`, 20000); }
-  async selectMailbox(mailbox) { await this.command(`SELECT ${quoteImap(mailbox)}`, 20000); this.selectedMailbox = mailbox; }
-  async searchSince(date) { return extractSearchUids(await this.command(`UID SEARCH SINCE ${formatImapDate(date)} SUBJECT "Kuveyt"`, 25000)); }
-  async searchTextSince(date, phrase) { return extractSearchUids(await this.command(`UID SEARCH SINCE ${formatImapDate(date)} TEXT ${quoteImap(phrase)}`, 25000)); }
+  async login() { await this.command(`LOGIN ${quoteImap(this.email)} ${quoteImap(this.password)}`, IMAP_COMMAND_TIMEOUT_MS); }
+  async selectMailbox(mailbox) { await this.command(`SELECT ${quoteImap(mailbox)}`, IMAP_COMMAND_TIMEOUT_MS); this.selectedMailbox = mailbox; }
+  async searchSince(date) { return extractSearchUids(await this.command(`UID SEARCH SINCE ${formatImapDate(date)} SUBJECT "Kuveyt"`, IMAP_COMMAND_TIMEOUT_MS)); }
+  async searchTextSince(date, phrase) { return extractSearchUids(await this.command(`UID SEARCH SINCE ${formatImapDate(date)} TEXT ${quoteImap(phrase)}`, IMAP_COMMAND_TIMEOUT_MS)); }
   async searchReceiptCandidatesSince(date, options = {}) {
     const configuredMailboxes = Array.isArray(options.mailboxes) && options.mailboxes.length ? options.mailboxes : RECEIPT_MAILBOXES;
     const configuredTerms = Array.isArray(options.terms) && options.terms.length ? options.terms : SEARCH_TERMS;
@@ -930,15 +1047,17 @@ class ImapClient {
       }
       if (options.includeRecentMailboxMessages) {
         try {
-          const uids = await this.searchRecentSince(date, MAILBOX_RECENT_FETCH_LIMIT);
+          const uids = await this.searchRecentSince(date, options.recentLimit || MAILBOX_RECENT_FETCH_LIMIT);
           for (const uid of uids) targets.set(`${mailbox}:${uid}`, { uid: Number(uid), mailbox });
-        } catch (_) {}
+        } catch (error) {
+          throw error;
+        }
       }
     }
     return [...targets.values()].sort((a, b) => a.uid - b.uid);
   }
   async searchRecentSince(date, limit = MAILBOX_RECENT_FETCH_LIMIT) {
-    const all = extractSearchUids(await this.command(`UID SEARCH SINCE ${formatImapDate(date)}`, 25000));
+    const all = extractSearchUids(await this.command(`UID SEARCH SINCE ${formatImapDate(date)}`, IMAP_COMMAND_TIMEOUT_MS));
     return all.slice(-limit);
   }
   async fetchMessages(targets) {
@@ -951,16 +1070,24 @@ class ImapClient {
     const out = [];
     for (const [mailbox, uids] of grouped.entries()) {
       await this.selectMailbox(mailbox);
-      const response = await this.command(`UID FETCH ${uids.join(",")} (BODY.PEEK[])`, 60000);
-      const messages = extractEmailsFromFetch(response);
-      if (messages.length) out.push(...messages.map((m) => ({ ...m, mailbox })));
-      else {
-        for (const uid of uids) out.push({ uid, mailbox, raw: extractEmailFromFetch(await this.command(`UID FETCH ${uid} (BODY.PEEK[])`, 45000)) });
+      for (const batch of chunkItems(uids, IMAP_FETCH_BATCH_SIZE)) {
+        const response = await this.command(`UID FETCH ${batch.join(",")} (BODY.PEEK[])`, IMAP_FETCH_TIMEOUT_MS);
+        const messages = extractEmailsFromFetch(response);
+        if (messages.length) {
+          out.push(...messages.map((m) => ({ ...m, mailbox })));
+        } else {
+          for (const uid of batch) {
+            out.push({ uid, mailbox, raw: extractEmailFromFetch(await this.command(`UID FETCH ${uid} (BODY.PEEK[])`, IMAP_FETCH_TIMEOUT_MS)) });
+          }
+        }
       }
     }
     return out;
   }
   command(text, timeoutMs) {
+    if (!this.socket || this.socket.destroyed || !this.socket.writable) {
+      throw new Error("IMAP baglantisi kullanilabilir degil");
+    }
     const tag = `A${String(this.seq++).padStart(4, "0")}`;
     const done = new RegExp(`(?:^|\\r?\\n)${tag} (OK|NO|BAD)`, "i");
     this.socket.write(`${tag} ${text}\r\n`);
@@ -974,7 +1101,11 @@ class ImapClient {
   readUntil(predicate, timeoutMs) {
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => { this.waiter = null; reject(new Error("IMAP yaniti zaman asimi")); }, timeoutMs);
-      this.waiter = { predicate, resolve: (b) => { clearTimeout(timer); resolve(b); }, reject };
+      this.waiter = {
+        predicate,
+        resolve: (b) => { clearTimeout(timer); resolve(b); },
+        reject: (error) => { clearTimeout(timer); reject(error); }
+      };
       this.flushWaiter();
     });
   }
@@ -989,7 +1120,16 @@ class ImapClient {
       waiter.resolve(buffer);
     }
   }
-  close() { try { if (this.socket) this.socket.destroy(); } catch (_) {} }
+  rejectWaiter(error) {
+    if (!this.waiter) return;
+    const waiter = this.waiter;
+    this.waiter = null;
+    waiter.reject(error);
+  }
+  close() {
+    this.rejectWaiter(new Error("IMAP baglantisi kapatildi"));
+    try { if (this.socket) this.socket.destroy(); } catch (_) {}
+  }
 }
 
 function parseReceipt(uid, raw, mailbox, source = "limon") {
@@ -1025,8 +1165,10 @@ function parseReceipt(uid, raw, mailbox, source = "limon") {
 function routeReceiptAccount(account, searchable) {
   if (account !== "limon") return account;
   const compact = compactSearch(searchable);
+  const hasSlot4 = /(^|[^0-9])4\s*numarali\s*hesabiniza/.test(searchable) || compact.includes("4numaralihesabiniza");
   const hasSlot3 = /(^|[^0-9])3\s*numarali\s*hesabiniza/.test(searchable) || compact.includes("3numaralihesabiniza");
   const hasSlot1 = /(^|[^0-9])1\s*numarali\s*hesabiniza/.test(searchable) || compact.includes("1numaralihesabiniza");
+  if (hasSlot4) return "ena";
   if (hasSlot3) return "limon-toplam";
   if (hasSlot1) return "limon";
   if (hasAnyReceiptSlot(searchable)) return null;
